@@ -1,0 +1,53 @@
+# טעינת נתונים — מקבצי ה-pipeline ל-Supabase
+
+מסמך זה מתאר איך הנתונים עוברים מפלט ה-pipeline הפייתוני אל מסד הנתונים.
+
+## הקבצים שה-pipeline מפיק
+תחת `Itay_Modules/tables/קבצי מידע משרד החינוך/`:
+1. **הקובץ הראשי** — `1400000_Talmidim_...xlsx` (~157 עמודות, כותרות בעברית). זה שנטען בשלב א'.
+2. **קובץ התוספתים** — `1400000_additional_fields_filled.xlsx`. מיועד לשלב ד' (טרם נטען).
+
+## הבעיה שנפתרה: תרגום כותרות
+הקובץ הראשי מגיע עם **כותרות בעברית** (access_name, למשל "שם משפחה"), כי במקור נועד ל-Access.
+בטבלה ב-Supabase העמודות **באנגלית** (python_name, למשל `SHEM_MISHPACHA`), כי שמות עמודות
+בעברית ב-Postgres בעייתיים. המיפוי נעשה דרך המילון של ה-pipeline:
+`Itay_Modules/tables/columns_name_dictionary.xlsx` (עמודות `python_name` ↔ `access_name`).
+
+## הסקריפט: `scripts/load_main.py`
+מבצע, לפי הסדר:
+1. **קריאה** של קובץ האקסל (`dtype=str`).
+2. **מיפוי כותרות** עברית → python_name לפי המילון; השארת עמודות שקיימות בטבלה בלבד.
+3. **מיפוי מועדף** לתוויות דו-משמעיות — למשל "שם מלא1" ממופה ל-`GOREM_KESHER_1_FULL_NAME`
+   (ולא ל-`Family_Name`), כי זה השדה שה-UI מציג.
+4. **שדה מחושב** — `KITA_MESHULEVET` = "מקבילה" עם מקף לפני הספרות (ט5 → ט-5).
+5. **המרת סוגים** — עמודות תאריך/מספר; ערכים לא-תקינים → NULL.
+6. **ניקוי ריקים** — מחרוזות ריקות, רווחים, ו-`NaN`/`none`/`null` → NULL.
+7. **הסרת כפילויות** לפי תעודת זהות.
+8. **הכנסה** — `TRUNCATE` ואז הכנסה בבאצ'ים (הטבלה נדרסת בכל עדכון חודשי).
+
+### באג שתוקן: `NaN` בעמודות טקסט
+`df.to_numpy()` המיר ערכי `None` (ריקים) חזרה ל-`float nan`, ו-psycopg2 כתב אותם כמחרוזת
+`'NaN'` בעמודות טקסט. הפתרון: המרת כל `nan` חזרה ל-`None` לפני ההכנסה (`x != x` מזהה nan).
+כך **תא ריק במקור נשאר ריק באתר**, בלי ערכים מזויפים.
+
+## הרצה
+```bash
+pip install pandas openpyxl psycopg2-binary requests
+set PGHOST=aws-1-ap-southeast-2.pooler.supabase.com
+set PGPORT=5432
+set PGUSER=postgres.agcoeqshvkyopjjdvril
+set PGPASSWORD=<db-password>
+set PGDATABASE=postgres
+python scripts/load_main.py --file "<path-to-main.xlsx>" --code 1400000
+```
+> אם הקובץ פתוח ב-Excel הוא נעול — יש להעתיק אותו זמנית או לסגור את Excel לפני הטעינה.
+
+## סקריפטים נוספים
+- `scripts/run_migrations.py` — מריץ את כל קבצי ה-SQL מ-`supabase/migrations/` לפי סדר.
+- `scripts/create_user.py` — יוצר משתמש ב-Auth ומשייך לרשות (דרך Admin API).
+- `scripts/load_data.py` — גרסה חלופית שטוענת דרך REST API (עם service_role key).
+
+## עדכון חודשי (התהליך העתידי)
+1. להריץ את ה-pipeline הפייתוני על קבצי המצב"ת החדשים.
+2. להריץ `load_main.py` — הוא עושה TRUNCATE וטוען מחדש את הטבלה הראשית.
+3. הנתונים באתר מתעדכנים אוטומטית (האתר קורא ישירות מ-Supabase).

@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: 'Assistant', system-ui, sans-serif;
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+
+/* פס גלילה דק לטבלה */
+.thin-scrollbar::-webkit-scrollbar {
+  height: 10px;
+  width: 10px;
+}
+.thin-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1;
+  border-radius: 9999px;
+}
