@@ -63,10 +63,10 @@ export default function StudentTable({ rows, fields, sort, onSort, onRowClick }:
     <div ref={parentRef} className="thin-scrollbar h-full overflow-auto">
       <div style={{ minWidth: totalWidth }}>
         {/* כותרת דביקה */}
-        <div className="sticky top-0 z-10 flex bg-slate-100 shadow-sm">
+        <div className="sticky top-0 z-10 flex bg-sky-50 shadow-sm">
           <div
             style={{ width: INDEX_WIDTH }}
-            className="flex shrink-0 items-center justify-center border-b border-slate-200 py-1.5 text-slate-400"
+            className="flex shrink-0 items-center justify-center border-b-2 border-sky-200 py-2 text-sky-400"
           >
             #
           </div>
@@ -76,21 +76,21 @@ export default function StudentTable({ rows, fields, sort, onSort, onRowClick }:
               <div
                 key={key}
                 style={{ width: widthOf(key) }}
-                className="group relative flex shrink-0 items-center justify-between gap-1 whitespace-nowrap border-b border-l border-slate-200 py-1.5 pr-2 pl-1 font-semibold text-slate-700"
+                className="group relative flex shrink-0 items-center justify-between gap-1 whitespace-nowrap border-b-2 border-l border-sky-200 border-l-sky-100 py-2 pr-2 pl-1 font-semibold text-sky-700"
               >
                 <button
                   onClick={() => onSort(key)}
                   title={fieldLabel(key) + ' — לחץ למיון'}
-                  className="flex min-w-0 flex-1 items-center gap-1 text-right hover:text-brand-700"
+                  className="flex min-w-0 flex-1 items-center gap-1 text-right transition hover:text-sky-900"
                 >
                   <span className="truncate">{fieldLabel(key)}</span>
-                  {active && <span className="shrink-0">{sort.direction === 'asc' ? '▲' : '▼'}</span>}
+                  {active && <span className="shrink-0 text-sky-500">{sort.direction === 'asc' ? '▲' : '▼'}</span>}
                 </button>
                 {/* ידית שינוי רוחב */}
                 <div
                   onMouseDown={(e) => startResize(e, key)}
                   title="גרור לשינוי רוחב"
-                  className="absolute inset-y-0 left-0 w-1.5 cursor-col-resize bg-transparent hover:bg-brand-400"
+                  className="absolute inset-y-0 left-0 w-1.5 cursor-col-resize bg-transparent transition hover:bg-sky-400"
                 />
               </div>
             )
@@ -105,12 +105,15 @@ export default function StudentTable({ rows, fields, sort, onSort, onRowClick }:
               <div
                 key={vItem.key}
                 onClick={() => onRowClick(vItem.index)}
-                className="absolute flex w-full cursor-pointer border-b border-slate-100 hover:bg-brand-50"
+                className={
+                  "absolute flex w-full cursor-pointer border-b border-slate-100 transition-colors hover:bg-sky-50 " +
+                  (vItem.index % 2 ? "bg-slate-50/60" : "bg-white")
+                }
                 style={{ transform: `translateY(${vItem.start}px)`, height: ROW_HEIGHT }}
               >
                 <div
                   style={{ width: INDEX_WIDTH }}
-                  className="flex shrink-0 items-center justify-center text-slate-400"
+                  className="flex shrink-0 items-center justify-center text-xs text-slate-400"
                 >
                   {vItem.index + 1}
                 </div>
@@ -131,7 +134,11 @@ export default function StudentTable({ rows, fields, sort, onSort, onRowClick }:
       </div>
 
       {rows.length === 0 && (
-        <div className="p-8 text-center text-slate-400">אין תוצאות להצגה</div>
+        <div className="p-12 text-center text-slate-400">
+          <div className="text-3xl">🔍</div>
+          <p className="mt-2">אין תוצאות להצגה</p>
+          <p className="mt-1 text-sm">נסה להסיר או לשנות את תנאי הסינון</p>
+        </div>
       )}
     </div>
   )

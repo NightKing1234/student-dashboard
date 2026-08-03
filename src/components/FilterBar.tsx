@@ -1,4 +1,5 @@
 import { ALL_FIELDS, getField } from '@/config/fields'
+import FieldCombobox from './FieldCombobox'
 import {
   operatorsForType,
   type FilterCondition,
@@ -38,7 +39,7 @@ export default function FilterBar({ conditions, onChange }: Props) {
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50 p-2">
+    <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-gradient-to-b from-slate-50 to-white px-4 py-2.5">
       {conditions.map((c) => {
         const field = getField(c.field)
         const ops = operatorsForType(field?.type ?? 'text')
@@ -47,26 +48,19 @@ export default function FilterBar({ conditions, onChange }: Props) {
         return (
           <div
             key={c.id}
-            className="flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-1.5 py-1 text-sm shadow-sm"
+            className="flex items-center gap-1 rounded-xl border border-sky-200 bg-white px-2 py-1.5 text-sm shadow-sm ring-1 ring-sky-50 transition hover:border-sky-300 hover:shadow"
           >
-            <select
+            <FieldCombobox
               value={c.field}
-              onChange={(e) => update(c.id, { field: e.target.value })}
-              className="max-w-[9rem] rounded bg-transparent py-0.5 focus:outline-none"
-            >
-              {ALL_FIELDS.map((f) => (
-                <option key={f.key} value={f.key}>
-                  {f.label}
-                </option>
-              ))}
-            </select>
+              onChange={(key) => update(c.id, { field: key })}
+            />
 
             <select
               value={op}
               onChange={(e) =>
                 update(c.id, { operator: e.target.value as FilterOperator })
               }
-              className="rounded bg-slate-100 py-0.5 focus:outline-none"
+              className="cursor-pointer rounded-md bg-slate-100 px-1 py-0.5 text-slate-700 transition hover:bg-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-400"
             >
               {ops.map((o) => (
                 <option key={o.op} value={o.op}>
@@ -81,7 +75,7 @@ export default function FilterBar({ conditions, onChange }: Props) {
                 value={c.value ?? ''}
                 onChange={(e) => update(c.id, { value: e.target.value })}
                 placeholder="ערך"
-                className="w-24 rounded border border-slate-200 px-1.5 py-0.5 focus:border-brand-500 focus:outline-none"
+                className="w-24 rounded-md border border-slate-200 px-2 py-0.5 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-300"
               />
             )}
 
@@ -92,7 +86,7 @@ export default function FilterBar({ conditions, onChange }: Props) {
                   value={c.value ?? ''}
                   onChange={(e) => update(c.id, { value: e.target.value })}
                   placeholder="מ"
-                  className="w-20 rounded border border-slate-200 px-1.5 py-0.5 focus:border-brand-500 focus:outline-none"
+                  className="w-20 rounded-md border border-slate-200 px-2 py-0.5 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-300"
                 />
                 <span className="text-slate-400">–</span>
                 <input
@@ -100,7 +94,7 @@ export default function FilterBar({ conditions, onChange }: Props) {
                   value={c.value2 ?? ''}
                   onChange={(e) => update(c.id, { value2: e.target.value })}
                   placeholder="עד"
-                  className="w-20 rounded border border-slate-200 px-1.5 py-0.5 focus:border-brand-500 focus:outline-none"
+                  className="w-20 rounded-md border border-slate-200 px-2 py-0.5 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-300"
                 />
               </>
             )}
@@ -118,13 +112,13 @@ export default function FilterBar({ conditions, onChange }: Props) {
                   })
                 }
                 placeholder="ערכים מופרדים בפסיק"
-                className="w-40 rounded border border-slate-200 px-1.5 py-0.5 focus:border-brand-500 focus:outline-none"
+                className="w-40 rounded-md border border-slate-200 px-2 py-0.5 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-300"
               />
             )}
 
             <button
               onClick={() => remove(c.id)}
-              className="px-1 text-slate-400 hover:text-red-600"
+              className="rounded px-1 text-slate-400 transition hover:bg-red-50 hover:text-red-600"
               title="הסר סינון"
             >
               ✕
@@ -135,7 +129,7 @@ export default function FilterBar({ conditions, onChange }: Props) {
 
       <button
         onClick={add}
-        className="rounded-lg border border-dashed border-brand-400 px-2 py-1 text-sm text-brand-700 hover:bg-brand-50"
+        className="rounded-lg border border-dashed border-sky-400 px-3 py-1.5 text-sm font-medium text-sky-700 transition hover:border-sky-500 hover:bg-sky-50"
       >
         + הוסף סינון
       </button>
@@ -143,7 +137,7 @@ export default function FilterBar({ conditions, onChange }: Props) {
       {conditions.length > 0 && (
         <button
           onClick={() => onChange([])}
-          className="text-sm text-slate-500 hover:text-red-600"
+          className="rounded-lg px-2 py-1 text-sm text-slate-500 transition hover:bg-red-50 hover:text-red-600"
         >
           נקה הכל
         </button>

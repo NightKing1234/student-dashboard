@@ -144,9 +144,9 @@ export default function Dashboard() {
   return (
     <div className="flex h-full flex-col">
       {/* פס עליון */}
-      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-2">
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-2.5 shadow-sm">
         <div className="flex items-center gap-3">
-          <h1 className="text-lg font-bold text-slate-800">ניהול נתוני תלמידים</h1>
+          <h1 className="text-lg font-bold text-sky-800">ניהול נתוני תלמידים</h1>
           {authorities.length > 1 ? (
             <select
               value={authorityCode}
@@ -165,7 +165,7 @@ export default function Dashboard() {
         </div>
         <div className="flex items-center gap-2 text-sm">
           <span className="text-slate-500">{profile?.display_name ?? profile?.email}</span>
-          <button onClick={signOut} className="text-slate-500 hover:text-red-600">
+          <button onClick={signOut} className="rounded-lg px-2 py-1 text-slate-500 transition hover:bg-red-50 hover:text-red-600">
             יציאה
           </button>
         </div>
@@ -181,8 +181,8 @@ export default function Dashboard() {
             className={
               'rounded-t-lg px-4 py-2 text-sm font-medium transition ' +
               (activePreset === p.id
-                ? 'bg-brand-600 text-white'
-                : 'text-slate-600 hover:bg-slate-100')
+                ? 'border-b-2 border-sky-600 bg-sky-600 text-white shadow-sm'
+                : 'border-b-2 border-transparent text-slate-600 hover:bg-sky-50 hover:text-sky-700')
             }
           >
             {p.name}
@@ -191,17 +191,17 @@ export default function Dashboard() {
       </div>
 
       {/* סרגל כלים */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-2.5 shadow-sm">
         <div className="flex items-center gap-2">
           <button
             onClick={() => setPickerOpen(true)}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100"
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:border-sky-400 hover:bg-sky-50 hover:text-sky-700"
           >
             ⚙ בורר שדות ({selectedFields.length})
           </button>
           <button
             onClick={handleExport}
-            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
+            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700 hover:shadow"
           >
             ⬇ ייצוא לאקסל
           </button>
@@ -209,7 +209,7 @@ export default function Dashboard() {
 
         <div className="flex items-center gap-3 text-sm text-slate-600">
           <span>
-            {results.length.toLocaleString('he-IL')} תלמידים
+            <strong className="text-sky-700">{results.length.toLocaleString('he-IL')}</strong> תלמידים
             {activeFilters.length > 0 && ` (מתוך ${allStudents.length.toLocaleString('he-IL')})`}
           </span>
 
@@ -219,7 +219,7 @@ export default function Dashboard() {
               <button
                 onClick={() => setFieldPage((p) => Math.max(0, p - 1))}
                 disabled={safePage === 0}
-                className="rounded border border-slate-300 px-2 py-0.5 disabled:opacity-40"
+                className="rounded-md border border-slate-300 px-2 py-0.5 transition hover:border-sky-400 hover:bg-sky-50 hover:text-sky-700 disabled:opacity-40 disabled:hover:border-slate-300 disabled:hover:bg-transparent"
               >
                 →
               </button>
@@ -229,7 +229,7 @@ export default function Dashboard() {
               <button
                 onClick={() => setFieldPage((p) => Math.min(fieldPages.length - 1, p + 1))}
                 disabled={safePage >= fieldPages.length - 1}
-                className="rounded border border-slate-300 px-2 py-0.5 disabled:opacity-40"
+                className="rounded-md border border-slate-300 px-2 py-0.5 transition hover:border-sky-400 hover:bg-sky-50 hover:text-sky-700 disabled:opacity-40 disabled:hover:border-slate-300 disabled:hover:bg-transparent"
               >
                 ←
               </button>
