@@ -1,0 +1,388 @@
+import { useEffect, useMemo, useState } from 'react'
+import {
+  fetchUsers,
+  fetchScopeOptions,
+  updateUserPermissions,
+  setUserPassword,
+  deleteUser,
+  ROLE_LABELS,
+  SCOPE_LABELS,
+  type ManagedUser,
+  type ScopeLevel,
+  type ScopeOption,
+  type UserRole,
+} from '@/lib/admin'
+import NewUserForm from './NewUserForm'
+
+interface Props {
+  code: string
+}
+
+/** מסך 2 — ניהול הרשאות: תפקיד + היקף (מועצתי / יישובי / בית-ספרי). */
+export default function PermissionsTab({ code }: Props) {
+  const [users, setUsers] = useState<ManagedUser[]>([])
+  const [editing, setEditing] = useState<string | null>(null)
+  const [draft, setDraft] = useState<ManagedUser | null>(null)
+  const [options, setOptions] = useState<ScopeOption[]>([])
+  const [optionsLoading, setOptionsLoading] = useState(false)
+  const [scopeQuery, setScopeQuery] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [adding, setAdding] = useState(false)
+  // רמת ההיקף שנבחרה בטופס המשתמש החדש — קובעת אילו אפשרויות לטעון
+  const [newUserLevel, setNewUserLevel] = useState<ScopeLevel>('council')
+  const [notice, setNotice] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetchUsers().then(setUsers).catch((e) => setError(e.message))
+  }, [])
+
+  // טוענים את רשימת היישובים/המוסדות רק כשבאמת צריך אותה
+  const activeLevel: ScopeLevel = adding ? newUserLevel : (draft?.scope_level ?? 'council')
+  useEffect(() => {
+    if (activeLevel === 'council') {
+      setOptions([])
+      return
+    }
+    setOptionsLoading(true)
+    fetchScopeOptions(code, activeLevel)
+      .then(setOptions)
+      .catch((e) => setError(e.message))
+      .finally(() => setOptionsLoading(false))
+  }, [activeLevel, code])
+
+  async function reload() {
+    setUsers(await fetchUsers())
+  }
+
+  async function changePassword(user: ManagedUser) {
+    const pw = prompt(`סיסמה חדשה עבור ${user.email} (8 תווים לפחות):`)
+    if (!pw) return
+    try {
+      await setUserPassword(user.id, pw)
+      setNotice(`הסיסמה של ${user.email} עודכנה`)
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+
+  async function removeUser(user: ManagedUser) {
+    if (!confirm(`למחוק לצמיתות את ${user.email}?`)) return
+    try {
+      await deleteUser(user.id)
+      await reload()
+      setNotice(`${user.email} נמחק`)
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+
+  const filteredOptions = useMemo(() => {
+    const q = scopeQuery.trim().toLowerCase()
+    if (!q) return options
+    return options.filter(
+      (o) => o.label.toLowerCase().includes(q) || o.value.includes(q),
+    )
+  }, [options, scopeQuery])
+
+  function startEdit(user: ManagedUser) {
+    setEditing(user.id)
+    setDraft({ ...user })
+    setScopeQuery('')
+    setError(null)
+  }
+
+  function toggleScopeValue(value: string) {
+    setDraft((d) =>
+      d
+        ? {
+            ...d,
+            scope_values: d.scope_values.includes(value)
+              ? d.scope_values.filter((v) => v !== value)
+              : [...d.scope_values, value],
+          }
+        : d,
+    )
+  }
+
+  async function save() {
+    if (!draft) return
+    setBusy(true)
+    setError(null)
+    try {
+      await updateUserPermissions(draft.id, {
+        role: draft.role,
+        authority_codes: draft.authority_codes,
+        scope_level: draft.scope_level,
+        // ברמה מועצתית אין ערכי היקף — מנקים כדי שלא יישארו שאריות
+        scope_values: draft.scope_level === 'council' ? [] : draft.scope_values,
+      })
+      setUsers(await fetchUsers())
+      setEditing(null)
+      setDraft(null)
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const inRashut = users.filter((u) => u.authority_codes.includes(code))
+  const others = users.filter((u) => !u.authority_codes.includes(code))
+
+  return (
+    <div className="space-y-6">
+      {error && (
+        <p className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-700">שגיאה: {error}</p>
+      )}
+
+      {notice && (
+        <p className="rounded-lg bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</p>
+      )}
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <h3 className="font-bold text-sky-800">משתמשים ברשות זו</h3>
+          {!adding && (
+            <button
+              onClick={() => {
+                setAdding(true)
+                setEditing(null)
+                setDraft(null)
+                setNotice(null)
+              }}
+              className="rounded-lg border border-dashed border-sky-400 px-3 py-1.5 text-sm font-medium text-sky-700 transition hover:bg-sky-50"
+            >
+              + משתמש חדש
+            </button>
+          )}
+        </div>
+        <p className="mb-4 text-sm text-slate-500">
+          התפקיד קובע מה מותר לעשות; ההיקף קובע <strong>אילו תלמידים</strong> נראים.
+          ההיקף אוכף במסד הנתונים (RLS) — לא רק בתצוגה.
+        </p>
+
+        {adding && (
+          <div className="mb-4">
+            <NewUserForm
+              authorityCode={code}
+              options={options}
+              optionsLoading={optionsLoading}
+              onScopeLevelChange={setNewUserLevel}
+              onCreated={async () => {
+                setAdding(false)
+                setNewUserLevel('council')
+                await reload()
+                setNotice('המשתמש נוצר. מסור לו את הסיסמה שרשמת.')
+              }}
+              onCancel={() => {
+                setAdding(false)
+                setNewUserLevel('council')
+              }}
+            />
+          </div>
+        )}
+
+        {inRashut.length === 0 && !adding && (
+          <p className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-400">
+            אין משתמשים משויכים לרשות זו.
+          </p>
+        )}
+
+        <div className="space-y-3">
+          {inRashut.map((user) => {
+            const isEditing = editing === user.id && draft
+            return (
+              <div
+                key={user.id}
+                className="rounded-xl border border-slate-200 p-4 transition hover:border-sky-200"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="font-medium text-slate-800">
+                      {user.display_name || user.email}
+                    </div>
+                    <div className="font-mono text-xs text-slate-400" dir="ltr">
+                      {user.email}
+                    </div>
+                  </div>
+
+                  {!isEditing && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-600">
+                        {ROLE_LABELS[user.role]}
+                      </span>
+                      <span className="rounded-full bg-sky-50 px-3 py-1 text-sky-700">
+                        {user.scope_level === 'council'
+                          ? 'מועצתי'
+                          : `${user.scope_level === 'locality' ? 'יישובי' : 'בית-ספרי'} · ${user.scope_values.length}`}
+                      </span>
+                      <button
+                        onClick={() => startEdit(user)}
+                        className="rounded-lg border border-slate-300 px-3 py-1 transition hover:border-sky-400 hover:bg-sky-50 hover:text-sky-700"
+                      >
+                        עריכה
+                      </button>
+                      <button
+                        onClick={() => changePassword(user)}
+                        title="קביעת סיסמה חדשה"
+                        className="rounded-lg border border-slate-300 px-3 py-1 transition hover:border-amber-400 hover:bg-amber-50 hover:text-amber-700"
+                      >
+                        סיסמה
+                      </button>
+                      <button
+                        onClick={() => removeUser(user)}
+                        title="מחיקת משתמש"
+                        className="rounded-lg px-2 py-1 text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {isEditing && draft && (
+                  <div className="mt-4 space-y-4 border-t border-slate-100 pt-4">
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <label className="block">
+                        <span className="mb-1 block text-sm text-slate-600">תפקיד</span>
+                        <select
+                          value={draft.role}
+                          onChange={(e) =>
+                            setDraft({ ...draft, role: e.target.value as UserRole })
+                          }
+                          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-400 focus:outline-none"
+                        >
+                          {Object.entries(ROLE_LABELS).map(([value, label]) => (
+                            <option key={value} value={value}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label className="block">
+                        <span className="mb-1 block text-sm text-slate-600">היקף הצפייה</span>
+                        <select
+                          value={draft.scope_level}
+                          onChange={(e) =>
+                            setDraft({
+                              ...draft,
+                              scope_level: e.target.value as ScopeLevel,
+                              scope_values: [],
+                            })
+                          }
+                          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-400 focus:outline-none"
+                        >
+                          {Object.entries(SCOPE_LABELS).map(([value, label]) => (
+                            <option key={value} value={value}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+
+                    {draft.scope_level !== 'council' && (
+                      <div>
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <span className="text-sm text-slate-600">
+                            {draft.scope_level === 'locality' ? 'יישובים מותרים' : 'מוסדות מותרים'}
+                            {draft.scope_values.length > 0 && (
+                              <strong className="mr-1 text-sky-700">
+                                ({draft.scope_values.length} נבחרו)
+                              </strong>
+                            )}
+                          </span>
+                          <input
+                            value={scopeQuery}
+                            onChange={(e) => setScopeQuery(e.target.value)}
+                            placeholder="חיפוש…"
+                            className="w-40 rounded-lg border border-slate-300 px-2 py-1 text-sm focus:border-sky-400 focus:outline-none"
+                          />
+                        </div>
+
+                        {optionsLoading ? (
+                          <p className="text-sm text-slate-400">טוען רשימה…</p>
+                        ) : (
+                          <div className="thin-scrollbar max-h-56 overflow-y-auto rounded-xl border border-slate-200">
+                            {filteredOptions.map((o) => (
+                              <label
+                                key={o.value}
+                                className="flex cursor-pointer items-center gap-2 border-b border-slate-50 px-3 py-1.5 text-sm last:border-0 hover:bg-sky-50"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={draft.scope_values.includes(o.value)}
+                                  onChange={() => toggleScopeValue(o.value)}
+                                  className="accent-sky-600"
+                                />
+                                <span className="flex-1 truncate">{o.label}</span>
+                                <span className="font-mono text-xs text-slate-400" dir="ltr">
+                                  {o.value}
+                                </span>
+                                <span className="w-12 text-left text-xs text-slate-400">
+                                  {o.count}
+                                </span>
+                              </label>
+                            ))}
+                            {filteredOptions.length === 0 && (
+                              <p className="p-4 text-center text-sm text-slate-400">
+                                לא נמצאו תוצאות
+                              </p>
+                            )}
+                          </div>
+                        )}
+
+                        {draft.scope_values.length === 0 && (
+                          <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                            ⚠ לא נבחר אף ערך — המשתמש לא יראה אף תלמיד.
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={save}
+                        disabled={busy}
+                        className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-sky-700 disabled:opacity-50"
+                      >
+                        {busy ? 'שומר…' : 'שמירה'}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setEditing(null)
+                          setDraft(null)
+                        }}
+                        className="rounded-lg px-3 py-2 text-sm text-slate-500 transition hover:bg-slate-100"
+                      >
+                        ביטול
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </section>
+
+      {others.length > 0 && (
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h3 className="mb-3 font-bold text-slate-600">משתמשים אחרים במערכת</h3>
+          <ul className="space-y-1 text-sm text-slate-500">
+            {others.map((u) => (
+              <li key={u.id} className="flex justify-between gap-2">
+                <span dir="ltr" className="font-mono text-xs">
+                  {u.email}
+                </span>
+                <span>{ROLE_LABELS[u.role]}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </div>
+  )
+}

@@ -1,0 +1,143 @@
+// Edge Function: ניהול משתמשים — יצירה, קביעת סיסמה, ומחיקה.
+//
+// למה נדרשת פונקציה בצד שרת: יצירת משתמש וקביעת סיסמה מחייבות את מפתח
+// ה-service_role, שאסור שיגיע לדפדפן. הפונקציה מחזיקה אותו בצד השרת,
+// ומוודאת בעצמה שהקורא הוא מנהל-על לפני כל פעולה.
+//
+// פריסה:
+//   supabase functions deploy admin-users --project-ref agcoeqshvkyopjjdvril
+//
+// משתני סביבה (מוגדרים אוטומטית ע"י Supabase):
+//   SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY
+
+import { createClient } from 'jsr:@supabase/supabase-js@2'
+
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+}
+
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
+const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!
+const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+
+/** תפקידים והיקפים מותרים — נאכפים גם כאן, לא רק ב-UI. */
+const ROLES = ['viewer', 'admin', 'super_admin']
+const SCOPES = ['council', 'locality', 'school']
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...CORS, 'Content-Type': 'application/json' },
+  })
+}
+
+/**
+ * מאמת שהקורא מחובר ושהתפקיד שלו super_admin.
+ * מחזיר את מזהה המשתמש, או null אם אינו מורשה.
+ */
+async function requireSuperAdmin(req: Request): Promise<string | null> {
+  const auth = req.headers.get('Authorization')
+  if (!auth) return null
+
+  // לקוח בהקשר המשתמש — כדי לזהות מי קורא
+  const asUser = createClient(SUPABASE_URL, ANON_KEY, {
+    global: { headers: { Authorization: auth } },
+  })
+  const { data: { user }, error } = await asUser.auth.getUser()
+  if (error || !user) return null
+
+  // התפקיד נקרא עם service_role כדי לא להיות תלוי במדיניות RLS
+  const admin = createClient(SUPABASE_URL, SERVICE_KEY)
+  const { data: profile } = await admin
+    .from('users')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  return profile?.role === 'super_admin' ? user.id : null
+}
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
+  if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
+
+  const callerId = await requireSuperAdmin(req)
+  if (!callerId) return json({ error: 'נדרשת הרשאת מנהל־על' }, 403)
+
+  let body: Record<string, unknown>
+  try {
+    body = await req.json()
+  } catch {
+    return json({ error: 'גוף בקשה לא תקין' }, 400)
+  }
+
+  const admin = createClient(SUPABASE_URL, SERVICE_KEY)
+  const action = String(body.action ?? '')
+
+  try {
+    // ─────────────── יצירת משתמש ───────────────
+    if (action === 'create') {
+      const email = String(body.email ?? '').trim()
+      const password = String(body.password ?? '')
+      const role = String(body.role ?? 'viewer')
+      const scopeLevel = String(body.scope_level ?? 'council')
+      const authorityCodes = (body.authority_codes ?? []) as string[]
+      const scopeValues = (body.scope_values ?? []) as string[]
+
+      if (!email || !password) return json({ error: 'חסרים מייל או סיסמה' }, 400)
+      if (password.length < 8) return json({ error: 'הסיסמה חייבת להיות באורך 8 תווים לפחות' }, 400)
+      if (!ROLES.includes(role)) return json({ error: 'תפקיד לא מוכר' }, 400)
+      if (!SCOPES.includes(scopeLevel)) return json({ error: 'היקף לא מוכר' }, 400)
+
+      const { data, error } = await admin.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true, // אין שליחת מייל אישור — סבא מוסר את הסיסמה ידנית
+        user_metadata: {
+          display_name: String(body.display_name ?? '') || email,
+          role,
+          authority_codes: authorityCodes,
+        },
+      })
+      if (error) return json({ error: error.message }, 400)
+
+      // הטריגר handle_new_auth_user יצר את הרשומה; משלימים את שדות ההיקף
+      const { error: updErr } = await admin
+        .from('users')
+        .update({ scope_level: scopeLevel, scope_values: scopeValues })
+        .eq('id', data.user.id)
+      if (updErr) return json({ error: updErr.message }, 400)
+
+      return json({ ok: true, id: data.user.id, email: data.user.email })
+    }
+
+    // ─────────────── קביעת סיסמה ───────────────
+    if (action === 'set_password') {
+      const id = String(body.id ?? '')
+      const password = String(body.password ?? '')
+      if (!id || !password) return json({ error: 'חסרים מזהה או סיסמה' }, 400)
+      if (password.length < 8) return json({ error: 'הסיסמה חייבת להיות באורך 8 תווים לפחות' }, 400)
+
+      const { error } = await admin.auth.admin.updateUserById(id, { password })
+      if (error) return json({ error: error.message }, 400)
+      return json({ ok: true })
+    }
+
+    // ─────────────── מחיקת משתמש ───────────────
+    if (action === 'delete') {
+      const id = String(body.id ?? '')
+      if (!id) return json({ error: 'חסר מזהה' }, 400)
+      if (id === callerId) return json({ error: 'אי אפשר למחוק את המשתמש שלך' }, 400)
+
+      const { error } = await admin.auth.admin.deleteUser(id)
+      if (error) return json({ error: error.message }, 400)
+      return json({ ok: true })
+    }
+
+    return json({ error: `פעולה לא מוכרת: ${action}` }, 400)
+  } catch (e) {
+    return json({ error: (e as Error).message }, 500)
+  }
+})
