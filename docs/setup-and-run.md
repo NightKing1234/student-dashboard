@@ -43,7 +43,11 @@ python scripts/create_user.py --email you@example.com --password "..." --role ad
 ```
 
 ## שלב 5 — הגדרת הפרונטאנד והרצה
-צור קובץ `.env` בתיקיית `student-dashboard`:
+צור קובץ `.env` בתיקיית `student-dashboard` (לפרונטאנד).
+לסקריפטים בפייתון צור `.env.db` באותה תיקייה — `update_from_moe.py` טוען אותו
+אוטומטית, כך שאין צורך להגדיר משתני סביבה ידנית בכל הרצה.
+
+`.env`:
 ```
 VITE_SUPABASE_URL=https://<project-ref>.supabase.co
 VITE_SUPABASE_ANON_KEY=<publishable-or-anon-key>
@@ -60,7 +64,10 @@ npm run dev
   (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`) בהגדרות ה-Site.
 - קובץ `netlify.toml` עם redirect ל-SPA (`/* → /index.html`) יידרש לניתוב.
 
-## מצב נוכחי (2026-07-01)
-- Supabase: פרויקט `agcoeqshvkyopjjdvril`, טבלה `students_1400000` עם 7,905 תלמידים.
+## מצב נוכחי (2026-08-03)
+- Supabase: פרויקט `agcoeqshvkyopjjdvril`, טבלה `students_1400000` עם **8,244** תלמידים
+  (7,919 "משובץ" + 325 בסטטוסים אחרים), **165 עמודות**.
 - משתמש: `eyal.yinnon@gmail.com` (admin, רשות 1400000).
-- הפרונטאנד: רץ מקומית על `localhost:5173`. טרם נפרס ל-Netlify.
+- **האתר חי:** https://astounding-pudding-d07e8f.netlify.app
+- גיטהאב: ריפו פרטי `NightKing1234/student-dashboard`, פריסה אוטומטית בכל push.
+- ה-pipeline: רץ מקומית, מוכן למעבר לשרת.

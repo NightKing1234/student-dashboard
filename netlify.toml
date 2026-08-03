@@ -3,7 +3,7 @@
   publish = "dist"
 
 [build.environment]
-  NODE_VERSION = "20"
+  NODE_VERSION = "22"  # supabase-js דורש >= 22
 
 # SPA — כל נתיב מוגש ע"י index.html, אחרת רענון בדף פנימי מחזיר 404
 [[redirects]]
