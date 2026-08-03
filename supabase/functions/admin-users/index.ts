@@ -10,7 +10,7 @@
 // משתני סביבה (מוגדרים אוטומטית ע"י Supabase):
 //   SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY
 
-import { createClient } from 'jsr:@supabase/supabase-js@2'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0'
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',

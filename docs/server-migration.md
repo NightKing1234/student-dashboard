@@ -77,3 +77,31 @@ Register-ScheduledTask -TaskName "עדכון מצבת חודשי" -Action $actio
 הקבצים מכילים תעודות זהות, כתובות וטלפונים של אלפי קטינים. הם חייבים להישאר
 על מחשב או שרת בשליטתך. `.gitignore` של הפרויקט חוסם `.env` ו-`.env.db`, אבל
 תיקיית `Itay_Modules` כולה אינה חלק מהריפו של האתר — וכך זה צריך להישאר.
+
+---
+
+# פריסת Edge Functions
+
+ה-CLI של Supabase **לא עובד ברשת הזו** — נטספארק מיירט את ה-TLS והוא נכשל ב-
+`TransportError`. הפריסה נעשית ישירות מול ה-Management API, ש-curl כן מצליח לפנות אליו.
+
+```bash
+TOKEN=<supabase-access-token>   # https://supabase.com/dashboard/account/tokens
+REF=agcoeqshvkyopjjdvril
+SLUG=admin-users
+
+# metadata.json:  {"entrypoint_path":"index.ts","name":"admin-users","verify_jwt":true}
+
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  -F "metadata=@metadata.json;type=application/json" \
+  -F "file=@supabase/functions/$SLUG/index.ts;type=application/typescript" \
+  "https://api.supabase.com/v1/projects/$REF/functions/deploy?slug=$SLUG"
+```
+
+**שתי מלכודות שעלו בפריסה הראשונה:**
+
+1. **`entrypoint_path` חובה.** ה-endpoint הישן (`POST /functions` עם `body` ב-JSON)
+   מחזיר `ACTIVE` אבל הפונקציה נופלת ב-`BOOT_ERROR`, כי לא הוגדר entrypoint.
+   יש להשתמש ב-`/functions/deploy` עם multipart.
+2. **`jsr:` לא נתמך** בסביבת הריצה. להשתמש ב-
+   `https://esm.sh/@supabase/supabase-js@2.45.0`.
