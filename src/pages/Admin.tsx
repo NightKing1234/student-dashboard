@@ -5,6 +5,7 @@ import {
   fetchAuthorities,
   fetchClients,
   countStudents,
+  createAuthority,
   type Authority,
   type Client,
 } from '@/lib/admin'
@@ -40,29 +41,49 @@ export default function Admin() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // הוספת מועצה חדשה
+  const [adding, setAdding] = useState(false)
+  const [newCode, setNewCode] = useState('')
+  const [newName, setNewName] = useState('')
+  const [creating, setCreating] = useState(false)
+
+  async function load() {
+    const [authorities, clients] = await Promise.all([fetchAuthorities(), fetchClients()])
+    const withCounts = await Promise.all(
+      authorities.map(async (a) => ({
+        authority: a,
+        client: clients.find((c) => c.authority_code === a.code) ?? null,
+        students: await countStudents(a.code),
+      })),
+    )
+    setCards(withCounts)
+  }
+
   useEffect(() => {
     let active = true
-    ;(async () => {
-      try {
-        const [authorities, clients] = await Promise.all([fetchAuthorities(), fetchClients()])
-        const withCounts = await Promise.all(
-          authorities.map(async (a) => ({
-            authority: a,
-            client: clients.find((c) => c.authority_code === a.code) ?? null,
-            students: await countStudents(a.code),
-          })),
-        )
-        if (active) setCards(withCounts)
-      } catch (e) {
-        if (active) setError((e as Error).message)
-      } finally {
-        if (active) setLoading(false)
-      }
-    })()
+    load()
+      .catch((e) => active && setError((e as Error).message))
+      .finally(() => active && setLoading(false))
     return () => {
       active = false
     }
   }, [])
+
+  async function handleCreate() {
+    setCreating(true)
+    setError(null)
+    try {
+      await createAuthority(newCode, newName)
+      await load()
+      setAdding(false)
+      setNewCode('')
+      setNewName('')
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setCreating(false)
+    }
+  }
 
   return (
     <div className="min-h-full bg-slate-100">
@@ -72,6 +93,12 @@ export default function Admin() {
           <p className="text-sm text-slate-500">מועצות אזוריות ובתי ספר במערכת</p>
         </div>
         <div className="flex items-center gap-3 text-sm">
+          <button
+            onClick={() => setAdding((v) => !v)}
+            className="rounded-lg bg-sky-600 px-4 py-1.5 font-medium text-white shadow-sm transition hover:bg-sky-700"
+          >
+            + הוספת מועצה
+          </button>
           <span className="text-slate-500">{profile?.display_name ?? profile?.email}</span>
           <button
             onClick={signOut}
@@ -84,7 +111,53 @@ export default function Admin() {
 
       <main className="p-6">
         {loading && <p className="text-slate-400">טוען לקוחות…</p>}
-        {error && <p className="text-red-600">שגיאה: {error}</p>}
+        {error && (
+          <p className="mb-4 rounded-lg bg-red-50 px-4 py-2 text-sm text-red-700">שגיאה: {error}</p>
+        )}
+
+        {adding && (
+          <div className="mb-6 rounded-2xl border-2 border-sky-200 bg-white p-5 shadow-sm">
+            <h2 className="mb-1 font-bold text-sky-800">מועצה חדשה</h2>
+            <p className="mb-4 text-sm text-slate-500">
+              תיווצר גם טבלת תלמידים ייעודית לרשות, עם ההרשאות והאינדקסים שלה.
+            </p>
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="block">
+                <span className="mb-1 block text-sm text-slate-600">קוד רשות</span>
+                <input
+                  dir="ltr"
+                  inputMode="numeric"
+                  value={newCode}
+                  onChange={(e) => setNewCode(e.target.value.replace(/\D/g, ''))}
+                  placeholder="1400000"
+                  className="w-40 rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-300"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-sm text-slate-600">שם המועצה</span>
+                <input
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="מטה מנשה"
+                  className="w-64 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-300"
+                />
+              </label>
+              <button
+                onClick={handleCreate}
+                disabled={creating || !newCode || !newName.trim()}
+                className="rounded-lg bg-sky-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-sky-700 disabled:opacity-50"
+              >
+                {creating ? 'יוצר…' : 'יצירה'}
+              </button>
+              <button
+                onClick={() => setAdding(false)}
+                className="rounded-lg px-3 py-2 text-sm text-slate-500 transition hover:bg-slate-100"
+              >
+                ביטול
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {cards.map(({ authority, client, students }) => {

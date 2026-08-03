@@ -230,29 +230,29 @@ export default function BusinessTab({ code }: Props) {
             {docs.map((doc) => (
               <div
                 key={doc.id}
-                className="group relative h-40 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 shadow-sm transition hover:border-sky-300 hover:shadow-md"
+                className="group flex flex-col items-center gap-2 rounded-xl border border-slate-200 bg-white p-4 text-center shadow-sm transition hover:border-sky-300 hover:shadow-md"
               >
-                {/* תצוגה מקדימה — נחתכת בתחתית */}
-                <div className="flex h-full flex-col items-center justify-start gap-2 p-4 text-center">
-                  <div className="text-4xl">{docIcon(doc.mime_type)}</div>
-                  <p className="text-sm font-medium text-slate-700">{doc.title}</p>
-                  <p className="text-xs text-slate-400">
-                    {new Date(doc.uploaded_at).toLocaleDateString('he-IL')} · {fmtSize(doc.size_bytes)}
-                  </p>
-                </div>
+                <div className="text-4xl">{docIcon(doc.mime_type)}</div>
+                <p
+                  title={doc.title}
+                  className="line-clamp-2 text-sm font-medium text-slate-700"
+                >
+                  {doc.title}
+                </p>
+                <p className="text-xs text-slate-400">
+                  {new Date(doc.uploaded_at).toLocaleDateString('he-IL')} · {fmtSize(doc.size_bytes)}
+                </p>
 
-                {/* ערפל בתחתית — רומז שיש עוד, ומכיל את הפעולות */}
-                <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-white via-white/85 to-transparent backdrop-blur-[2px]" />
-                <div className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-2 p-3">
+                <div className="mt-auto flex items-center gap-2 pt-2">
                   <button
                     onClick={() => openDoc(doc)}
-                    className="rounded-lg bg-sky-600 px-3 py-1 text-xs font-medium text-white shadow transition hover:bg-sky-700"
+                    className="rounded-lg bg-sky-600 px-3 py-1 text-xs font-medium text-white shadow-sm transition hover:bg-sky-700"
                   >
                     פתיחה
                   </button>
                   <button
                     onClick={() => removeDoc(doc)}
-                    className="rounded-lg px-2 py-1 text-xs text-slate-400 opacity-0 transition hover:bg-red-50 hover:text-red-600 group-hover:opacity-100"
+                    className="rounded-lg px-2 py-1 text-xs text-slate-400 opacity-0 transition hover:bg-red-50 hover:text-red-600 group-hover:opacity-100 focus:opacity-100"
                   >
                     מחיקה
                   </button>

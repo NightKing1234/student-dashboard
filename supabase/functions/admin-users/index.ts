@@ -26,6 +26,27 @@ const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 const ROLES = ['viewer', 'admin', 'super_admin']
 const SCOPES = ['council', 'locality', 'school']
 
+/** שגיאות Supabase מגיעות באנגלית — מתרגמים את הנפוצות לממשק עברי. */
+function translate(message: string): string {
+  const m = message.toLowerCase()
+  if (m.includes('already been registered') || m.includes('already exists')) {
+    return 'כתובת המייל כבר רשומה במערכת'
+  }
+  if (m.includes('invalid format') || m.includes('validate email')) {
+    return 'כתובת המייל אינה תקינה'
+  }
+  if (m.includes('password') && m.includes('at least')) {
+    return 'הסיסמה קצרה מדי'
+  }
+  if (m.includes('weak') || m.includes('pwned') || m.includes('leaked')) {
+    return 'הסיסמה חלשה מדי או שדלפה בעבר — בחר סיסמה אחרת'
+  }
+  if (m.includes('user not found')) {
+    return 'המשתמש לא נמצא'
+  }
+  return message
+}
+
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -101,14 +122,14 @@ Deno.serve(async (req) => {
           authority_codes: authorityCodes,
         },
       })
-      if (error) return json({ error: error.message }, 400)
+      if (error) return json({ error: translate(error.message) }, 400)
 
       // הטריגר handle_new_auth_user יצר את הרשומה; משלימים את שדות ההיקף
       const { error: updErr } = await admin
         .from('users')
         .update({ scope_level: scopeLevel, scope_values: scopeValues })
         .eq('id', data.user.id)
-      if (updErr) return json({ error: updErr.message }, 400)
+      if (updErr) return json({ error: translate(updErr.message) }, 400)
 
       return json({ ok: true, id: data.user.id, email: data.user.email })
     }
@@ -121,8 +142,31 @@ Deno.serve(async (req) => {
       if (password.length < 8) return json({ error: 'הסיסמה חייבת להיות באורך 8 תווים לפחות' }, 400)
 
       const { error } = await admin.auth.admin.updateUserById(id, { password })
-      if (error) return json({ error: error.message }, 400)
+      if (error) return json({ error: translate(error.message) }, 400)
       return json({ ok: true })
+    }
+
+    // ─────────────── השהיה / החזרה לפעילות ───────────────
+    // ban ב-Auth חוסם את הכניסה עצמה; הדגל ב-public.users מנטרל גם טוקן
+    // שנשאר תקף מלפני ההשהיה (ראה מיגרציה 007).
+    if (action === 'set_suspended') {
+      const id = String(body.id ?? '')
+      const suspended = Boolean(body.suspended)
+      if (!id) return json({ error: 'חסר מזהה' }, 400)
+      if (id === callerId) return json({ error: 'אי אפשר להשהות את המשתמש שלך' }, 400)
+
+      const { error: banErr } = await admin.auth.admin.updateUserById(id, {
+        ban_duration: suspended ? '876000h' : 'none', // ~100 שנה / ביטול
+      })
+      if (banErr) return json({ error: translate(banErr.message) }, 400)
+
+      const { error } = await admin
+        .from('users')
+        .update({ is_suspended: suspended })
+        .eq('id', id)
+      if (error) return json({ error: translate(error.message) }, 400)
+
+      return json({ ok: true, suspended })
     }
 
     // ─────────────── מחיקת משתמש ───────────────
@@ -132,12 +176,12 @@ Deno.serve(async (req) => {
       if (id === callerId) return json({ error: 'אי אפשר למחוק את המשתמש שלך' }, 400)
 
       const { error } = await admin.auth.admin.deleteUser(id)
-      if (error) return json({ error: error.message }, 400)
+      if (error) return json({ error: translate(error.message) }, 400)
       return json({ ok: true })
     }
 
     return json({ error: `פעולה לא מוכרת: ${action}` }, 400)
   } catch (e) {
-    return json({ error: (e as Error).message }, 500)
+    return json({ error: translate((e as Error).message) }, 500)
   }
 })

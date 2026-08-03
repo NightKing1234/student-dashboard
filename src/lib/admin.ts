@@ -60,6 +60,8 @@ export interface ManagedUser {
   authority_codes: string[]
   scope_level: ScopeLevel
   scope_values: string[]
+  /** מושהה — לא יכול להתחבר, ולא רואה נתונים גם עם טוקן ישן */
+  is_suspended: boolean
 }
 
 export interface MoeUpload {
@@ -90,6 +92,19 @@ export async function fetchAuthorities(): Promise<Authority[]> {
     .order('name')
   if (error) throw error
   return (data ?? []) as Authority[]
+}
+
+/**
+ * מוסיפה מועצה חדשה. הפונקציה במסד יוצרת גם את טבלת התלמידים שלה,
+ * את ה-RLS ואת האינדקסים — לפי עקרון "רשות = עולם".
+ */
+export async function createAuthority(code: string, name: string): Promise<string> {
+  const { data, error } = await supabase.rpc('create_authority', {
+    new_code: code.trim(),
+    new_name: name.trim(),
+  })
+  if (error) throw new Error(error.message)
+  return data as string
 }
 
 export async function fetchClients(): Promise<Client[]> {
@@ -172,7 +187,7 @@ export async function documentUrl(doc: ClientDocument): Promise<string | null> {
 export async function fetchUsers(): Promise<ManagedUser[]> {
   const { data, error } = await supabase
     .from('users')
-    .select('id, email, display_name, role, authority_codes, scope_level, scope_values')
+    .select('id, email, display_name, role, authority_codes, scope_level, scope_values, is_suspended')
     .order('email')
   if (error) throw error
   return (data ?? []) as ManagedUser[]
@@ -185,11 +200,22 @@ export async function fetchUsers(): Promise<ManagedUser[]> {
  */
 async function callAdminFunction(body: Record<string, unknown>) {
   const { data, error } = await supabase.functions.invoke('admin-users', { body })
+
   if (error) {
-    // גוף התשובה מכיל הודעה בעברית; error.message לבדו הוא גנרי
-    const detail = (data as { error?: string } | null)?.error
-    throw new Error(detail || error.message)
+    // supabase-js מחזיר "non-2xx status code" גנרי ומשאיר את גוף התשובה
+    // ב-error.context (אובייקט Response). ההודעה בעברית נמצאת שם.
+    const context = (error as { context?: unknown }).context
+    if (context instanceof Response) {
+      const detail = await context
+        .clone()
+        .json()
+        .then((b) => (b as { error?: string })?.error)
+        .catch(() => null)
+      if (detail) throw new Error(detail)
+    }
+    throw new Error(error.message)
   }
+
   if ((data as { error?: string })?.error) {
     throw new Error((data as { error: string }).error)
   }
@@ -216,6 +242,15 @@ export async function setUserPassword(id: string, password: string) {
 
 export async function deleteUser(id: string) {
   return callAdminFunction({ action: 'delete', id })
+}
+
+/**
+ * משהה משתמש או מחזיר אותו לפעילות.
+ * ההשהיה חוסמת את הכניסה עצמה (ban ב-Auth) ומנטרלת גם טוקן קיים
+ * (הדגל is_suspended מנטרל את פונקציות ההרשאה — מיגרציה 007).
+ */
+export async function setUserSuspended(id: string, suspended: boolean) {
+  return callAdminFunction({ action: 'set_suspended', id, suspended })
 }
 
 export async function updateUserPermissions(

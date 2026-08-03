@@ -4,6 +4,7 @@ import {
   fetchScopeOptions,
   updateUserPermissions,
   setUserPassword,
+  setUserSuspended,
   deleteUser,
   ROLE_LABELS,
   SCOPE_LABELS,
@@ -32,6 +33,8 @@ export default function PermissionsTab({ code }: Props) {
   // רמת ההיקף שנבחרה בטופס המשתמש החדש — קובעת אילו אפשרויות לטעון
   const [newUserLevel, setNewUserLevel] = useState<ScopeLevel>('council')
   const [notice, setNotice] = useState<string | null>(null)
+  // שדה הסיסמה שבתוך טופס העריכה — ריק פירושו "לא לשנות"
+  const [newPassword, setNewPassword] = useState('')
 
   useEffect(() => {
     fetchUsers().then(setUsers).catch((e) => setError(e.message))
@@ -55,12 +58,13 @@ export default function PermissionsTab({ code }: Props) {
     setUsers(await fetchUsers())
   }
 
-  async function changePassword(user: ManagedUser) {
-    const pw = prompt(`סיסמה חדשה עבור ${user.email} (8 תווים לפחות):`)
-    if (!pw) return
+  async function toggleSuspended(user: ManagedUser) {
+    const next = !user.is_suspended
+    if (next && !confirm(`להשהות את ${user.email}? הוא לא יוכל להתחבר עד לביטול.`)) return
     try {
-      await setUserPassword(user.id, pw)
-      setNotice(`הסיסמה של ${user.email} עודכנה`)
+      await setUserSuspended(user.id, next)
+      await reload()
+      setNotice(next ? `${user.email} הושהה` : `${user.email} הוחזר לפעילות`)
     } catch (e) {
       setError((e as Error).message)
     }
@@ -89,6 +93,7 @@ export default function PermissionsTab({ code }: Props) {
     setEditing(user.id)
     setDraft({ ...user })
     setScopeQuery('')
+    setNewPassword('')
     setError(null)
   }
 
@@ -117,9 +122,14 @@ export default function PermissionsTab({ code }: Props) {
         // ברמה מועצתית אין ערכי היקף — מנקים כדי שלא יישארו שאריות
         scope_values: draft.scope_level === 'council' ? [] : draft.scope_values,
       })
+      if (newPassword) {
+        await setUserPassword(draft.id, newPassword)
+      }
       setUsers(await fetchUsers())
       setEditing(null)
       setDraft(null)
+      setNotice(newPassword ? 'ההרשאות והסיסמה עודכנו' : 'ההרשאות עודכנו')
+      setNewPassword('')
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -199,8 +209,13 @@ export default function PermissionsTab({ code }: Props) {
               >
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <div className="font-medium text-slate-800">
+                    <div className="flex items-center gap-2 font-medium text-slate-800">
                       {user.display_name || user.email}
+                      {user.is_suspended && (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-normal text-amber-800">
+                          מושהה — אינו יכול להתחבר
+                        </span>
+                      )}
                     </div>
                     <div className="font-mono text-xs text-slate-400" dir="ltr">
                       {user.email}
@@ -224,11 +239,16 @@ export default function PermissionsTab({ code }: Props) {
                         עריכה
                       </button>
                       <button
-                        onClick={() => changePassword(user)}
-                        title="קביעת סיסמה חדשה"
-                        className="rounded-lg border border-slate-300 px-3 py-1 transition hover:border-amber-400 hover:bg-amber-50 hover:text-amber-700"
+                        onClick={() => toggleSuspended(user)}
+                        title={user.is_suspended ? 'החזרה לפעילות' : 'חסימת כניסה למערכת'}
+                        className={
+                          'rounded-lg border px-3 py-1 transition ' +
+                          (user.is_suspended
+                            ? 'border-amber-400 bg-amber-100 font-medium text-amber-800 hover:bg-amber-200'
+                            : 'border-slate-300 hover:border-amber-400 hover:bg-amber-50 hover:text-amber-700')
+                        }
                       >
-                        סיסמה
+                        {user.is_suspended ? 'מושהה' : 'השהייה'}
                       </button>
                       <button
                         onClick={() => removeUser(user)}
@@ -342,10 +362,26 @@ export default function PermissionsTab({ code }: Props) {
                       </div>
                     )}
 
+                    <label className="block border-t border-slate-100 pt-4">
+                      <span className="mb-1 block text-sm text-slate-600">
+                        סיסמה חדשה{' '}
+                        <span className="text-xs text-slate-400">
+                          (השאר ריק כדי לא לשנות · 8 תווים לפחות)
+                        </span>
+                      </span>
+                      <input
+                        dir="ltr"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        placeholder="••••••••"
+                        className="w-full max-w-xs rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-300"
+                      />
+                    </label>
+
                     <div className="flex items-center gap-2">
                       <button
                         onClick={save}
-                        disabled={busy}
+                        disabled={busy || (newPassword.length > 0 && newPassword.length < 8)}
                         className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-sky-700 disabled:opacity-50"
                       >
                         {busy ? 'שומר…' : 'שמירה'}
