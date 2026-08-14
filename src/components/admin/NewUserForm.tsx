@@ -19,7 +19,7 @@ interface Props {
 }
 
 /** סיסמה זמנית קריאה — סבא מוסר אותה למשתמש והוא יכול לשנותה בהמשך. */
-function suggestPassword() {
+export function suggestPassword() {
   const words = ['shomron', 'menashe', 'talmid', 'mosad', 'kita', 'rashut']
   const word = words[Math.floor(Math.random() * words.length)]
   return `${word}${Math.floor(1000 + Math.random() * 9000)}`

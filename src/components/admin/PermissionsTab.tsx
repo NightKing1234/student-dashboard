@@ -13,7 +13,7 @@ import {
   type ScopeOption,
   type UserRole,
 } from '@/lib/admin'
-import NewUserForm from './NewUserForm'
+import NewUserForm, { suggestPassword } from './NewUserForm'
 
 interface Props {
   code: string
@@ -227,11 +227,13 @@ export default function PermissionsTab({ code }: Props) {
                       <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-600">
                         {ROLE_LABELS[user.role]}
                       </span>
-                      <span className="rounded-full bg-sky-50 px-3 py-1 text-sky-700">
-                        {user.scope_level === 'council'
-                          ? 'מועצתי'
-                          : `${user.scope_level === 'locality' ? 'יישובי' : 'בית-ספרי'} · ${user.scope_values.length}`}
-                      </span>
+                      {user.role !== 'super_admin' && (
+                        <span className="rounded-full bg-sky-50 px-3 py-1 text-sky-700">
+                          {user.scope_level === 'council'
+                            ? 'מועצתי'
+                            : `${user.scope_level === 'locality' ? 'יישובי' : 'בית-ספרי'} · ${user.scope_values.length}`}
+                        </span>
+                      )}
                       <button
                         onClick={() => startEdit(user)}
                         className="rounded-lg border border-slate-300 px-3 py-1 transition hover:border-sky-400 hover:bg-sky-50 hover:text-sky-700"
@@ -263,6 +265,19 @@ export default function PermissionsTab({ code }: Props) {
 
                 {isEditing && draft && (
                   <div className="mt-4 space-y-4 border-t border-slate-100 pt-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-sky-800">עריכת הרשאות</span>
+                      <button
+                        onClick={() => {
+                          setEditing(null)
+                          setDraft(null)
+                        }}
+                        title="סגירת העריכה"
+                        className="rounded-lg px-2 py-0.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                      >
+                        ▲
+                      </button>
+                    </div>
                     <div className="grid gap-4 sm:grid-cols-2">
                       <label className="block">
                         <span className="mb-1 block text-sm text-slate-600">תפקיד</span>
@@ -281,29 +296,37 @@ export default function PermissionsTab({ code }: Props) {
                         </select>
                       </label>
 
-                      <label className="block">
-                        <span className="mb-1 block text-sm text-slate-600">היקף הצפייה</span>
-                        <select
-                          value={draft.scope_level}
-                          onChange={(e) =>
-                            setDraft({
-                              ...draft,
-                              scope_level: e.target.value as ScopeLevel,
-                              scope_values: [],
-                            })
-                          }
-                          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-400 focus:outline-none"
-                        >
-                          {Object.entries(SCOPE_LABELS).map(([value, label]) => (
-                            <option key={value} value={value}>
-                              {label}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                      {draft.role === 'super_admin' ? (
+                        <div className="flex items-end">
+                          <p className="rounded-lg bg-sky-50 px-3 py-2 text-sm text-sky-800">
+                            מנהל־על רואה את כל המועצות — אין מה להגביל.
+                          </p>
+                        </div>
+                      ) : (
+                        <label className="block">
+                          <span className="mb-1 block text-sm text-slate-600">היקף הצפייה</span>
+                          <select
+                            value={draft.scope_level}
+                            onChange={(e) =>
+                              setDraft({
+                                ...draft,
+                                scope_level: e.target.value as ScopeLevel,
+                                scope_values: [],
+                              })
+                            }
+                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-400 focus:outline-none"
+                          >
+                            {Object.entries(SCOPE_LABELS).map(([value, label]) => (
+                              <option key={value} value={value}>
+                                {label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
                     </div>
 
-                    {draft.scope_level !== 'council' && (
+                    {draft.role !== 'super_admin' && draft.scope_level !== 'council' && (
                       <div>
                         <div className="mb-2 flex items-center justify-between gap-2">
                           <span className="text-sm text-slate-600">
@@ -362,21 +385,46 @@ export default function PermissionsTab({ code }: Props) {
                       </div>
                     )}
 
-                    <label className="block border-t border-slate-100 pt-4">
-                      <span className="mb-1 block text-sm text-slate-600">
+                    <div className="border-t border-slate-100 pt-4">
+                      <label
+                        htmlFor={`pw-${draft.id}`}
+                        className="mb-1 block text-sm text-slate-600"
+                      >
                         סיסמה חדשה{' '}
                         <span className="text-xs text-slate-400">
                           (השאר ריק כדי לא לשנות · 8 תווים לפחות)
                         </span>
-                      </span>
-                      <input
-                        dir="ltr"
-                        value={newPassword}
-                        onChange={(e) => setNewPassword(e.target.value)}
-                        placeholder="••••••••"
-                        className="w-full max-w-xs rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-300"
-                      />
-                    </label>
+                      </label>
+                      <div className="flex max-w-sm gap-2">
+                        <input
+                          id={`pw-${draft.id}`}
+                          dir="ltr"
+                          autoComplete="new-password"
+                          value={newPassword}
+                          onChange={(e) => setNewPassword(e.target.value)}
+                          placeholder="ללא שינוי"
+                          className="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-300"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setNewPassword(suggestPassword())}
+                          title="הצע סיסמה"
+                          className="shrink-0 rounded-lg border border-slate-300 px-3 text-sm transition hover:bg-slate-50"
+                        >
+                          🎲
+                        </button>
+                      </div>
+                      {newPassword.length > 0 && newPassword.length < 8 && (
+                        <p className="mt-1 text-xs text-amber-700">
+                          עוד {8 - newPassword.length} תווים לפחות
+                        </p>
+                      )}
+                      {newPassword.length >= 8 && (
+                        <p className="mt-1 text-xs text-emerald-700">
+                          הסיסמה תוחלף בשמירה — רשום אותה למסירה למשתמש
+                        </p>
+                      )}
+                    </div>
 
                     <div className="flex items-center gap-2">
                       <button

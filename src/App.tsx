@@ -37,6 +37,7 @@ export default function App() {
       />
       <Route path="/" element={isSuperAdmin ? <Navigate to="/admin" replace /> : <Dashboard />} />
       <Route path="/students" element={<Dashboard />} />
+      <Route path="/students/:code" element={<Dashboard />} />
       <Route
         path="/admin"
         element={isSuperAdmin ? <Admin /> : <Navigate to="/" replace />}

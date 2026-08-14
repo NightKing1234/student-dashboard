@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useParams } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { fetchAllStudents, type StudentRow } from '@/lib/students'
 import { applyFilters, isConditionReady, type FilterCondition } from '@/lib/filters'
@@ -11,6 +12,7 @@ import {
   ACTIVE_STATUS_VALUE,
 } from '@/config/presets'
 import { PARENT_ID_FIELDS } from '@/config/fields'
+import { fetchAuthorities, type Authority } from '@/lib/admin'
 import FilterBar from '@/components/FilterBar'
 import FieldPicker from '@/components/FieldPicker'
 import StudentTable from '@/components/StudentTable'
@@ -36,15 +38,31 @@ function defaultFilters(): FilterCondition[] {
 
 export default function Dashboard() {
   const { profile, signOut } = useAuth()
+  // קוד הרשות מגיע מהנתיב (/students/:code) כשמגיעים ממסך המנהל
+  const { code: codeFromUrl } = useParams()
+  const isSuperAdmin = profile?.role === 'super_admin'
 
-  // הרשות הנבחרת (אפיון: "רשות = עולם"). כרגע הראשונה שמשויכת למשתמש.
-  const authorities = profile?.authority_codes ?? []
-  const [authorityCode, setAuthorityCode] = useState<string>('')
+  // הרשויות הזמינות: מנהל־על רואה את כולן, משתמש רגיל רק את שלו
+  const [allAuthorities, setAllAuthorities] = useState<Authority[]>([])
+  const authorities = isSuperAdmin
+    ? allAuthorities.map((a) => a.code)
+    : (profile?.authority_codes ?? [])
+
+  const [authorityCode, setAuthorityCode] = useState<string>(codeFromUrl ?? '')
+
+  useEffect(() => {
+    if (!isSuperAdmin) return
+    fetchAuthorities().then(setAllAuthorities).catch(() => setAllAuthorities([]))
+  }, [isSuperAdmin])
 
   // הפרופיל נטען אסינכרונית — נקבע את הרשות ברגע שהוא מגיע
   useEffect(() => {
     if (!authorityCode && authorities.length > 0) setAuthorityCode(authorities[0])
   }, [authorities, authorityCode])
+
+  // שם הרשות לתצוגה — נעים יותר מקוד בן 7 ספרות
+  const authorityName =
+    allAuthorities.find((a) => a.code === authorityCode)?.name ?? ''
 
   const [allStudents, setAllStudents] = useState<StudentRow[]>([])
   const [loading, setLoading] = useState(false)
@@ -153,17 +171,30 @@ export default function Dashboard() {
               onChange={(e) => setAuthorityCode(e.target.value)}
               className="rounded-lg border border-slate-300 px-2 py-1 text-sm"
             >
-              {authorities.map((a) => (
-                <option key={a} value={a}>
-                  רשות {a}
-                </option>
-              ))}
+              {authorities.map((a) => {
+                const name = allAuthorities.find((x) => x.code === a)?.name
+                return (
+                  <option key={a} value={a}>
+                    {name ? `${name} (${a})` : `רשות ${a}`}
+                  </option>
+                )
+              })}
             </select>
           ) : (
-            <span className="text-sm text-slate-500">רשות {authorityCode || '—'}</span>
+            <span className="text-sm text-slate-500">
+              {authorityName ? `${authorityName} (${authorityCode})` : `רשות ${authorityCode || '—'}`}
+            </span>
           )}
         </div>
         <div className="flex items-center gap-2 text-sm">
+          {isSuperAdmin && (
+            <Link
+              to="/admin"
+              className="rounded-lg px-2 py-1 text-slate-500 transition hover:bg-sky-50 hover:text-sky-700"
+            >
+              → ניהול לקוחות
+            </Link>
+          )}
           <span className="text-slate-500">{profile?.display_name ?? profile?.email}</span>
           <button onClick={signOut} className="rounded-lg px-2 py-1 text-slate-500 transition hover:bg-red-50 hover:text-red-600">
             יציאה

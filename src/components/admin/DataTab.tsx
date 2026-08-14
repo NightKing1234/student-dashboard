@@ -72,7 +72,7 @@ export default function DataTab({ code }: Props) {
             </p>
           </div>
           <Link
-            to="/students"
+            to={`/students/${code}`}
             className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-sky-700"
           >
             פתיחת הטבלה ←
