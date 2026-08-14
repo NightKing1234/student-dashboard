@@ -12,7 +12,8 @@ Vault תיעוד (Obsidian) לפרויקט ממשק ניהול נתוני תלמ
 | [data-loading.md](data-loading.md) | טעינת נתונים מקבצי ה-pipeline ל-Supabase |
 | [features.md](features.md) | מיפוי פיצ'רים של שלב א' לקוד |
 | [setup-and-run.md](setup-and-run.md) | מדריך הקמה והרצה מאפס |
-| [server-migration.md](server-migration.md) | מה רץ איפה, והעברת ה-pipeline לשרת |
+| [server-migration.md](server-migration.md) | מה רץ איפה, העברה לשרת, ופריסת Edge Functions |
+| [../agent/README.md](../agent/README.md) | סוכן העיבוד — התקנה והפעלה |
 | [dev-log.md](dev-log.md) | יומן פיתוח כרונולוגי |
 | [decisions/](decisions/) | החלטות טכניות |
 | [meetings/](meetings/) | סיכומי פגישות |
@@ -27,7 +28,8 @@ Vault תיעוד (Obsidian) לפרויקט ממשק ניהול נתוני תלמ
 **שלב א' מומש, והמערכת חיה בענן.**
 
 - 🌐 האתר: https://astounding-pudding-d07e8f.netlify.app
-- 🗄 Supabase: 8,244 תלמידים (רשות 1400000), 165 עמודות
+- 🗄 Supabase: 3 רשויות · 8 מיגרציות · Edge Function לניהול משתמשים
+- 🤖 סוכן עיבוד אוטומטי — העלאה באתר מפעילה עדכון בלי מגע יד
 - 🔄 עדכון חודשי: `python scripts/update_from_moe.py --code 1400000`
 
 ראה [dev-log.md](dev-log.md) לפרטים ו-[decisions/003](decisions/003-unified-pipeline-and-cloud.md)
