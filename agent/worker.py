@@ -18,7 +18,7 @@
 from __future__ import annotations
 
 import argparse
-import gzip
+import io
 import json
 import logging
 import os
@@ -31,6 +31,7 @@ import traceback
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
+import pandas as pd
 import psycopg2
 import requests
 import urllib3
@@ -226,8 +227,11 @@ def backup_table(conn, code: str) -> Path | None:
     שומר עותק של הטבלה לפני שהיא נדרסת.
 
     הטעינה עושה TRUNCATE, ולכן בלי גיבוי אין דרך לחזור לנתונים הקודמים —
-    למשל אם התברר שקובץ מצב"ת שהועלה היה שגוי. הקובץ נשמר כ-CSV דחוס
-    בתיקיית backups שליד הסוכן.
+    למשל אם התברר שקובץ מצב"ת שהועלה היה שגוי.
+
+    הקובץ נשמר כאקסל כדי שאפשר יהיה לפתוח אותו בלחיצה כפולה ולהשוות מול
+    המצב הנוכחי. השליפה עצמה נעשית ב-COPY לקובץ זמני — הרבה יותר מהיר
+    מקריאה שורה-שורה — ורק אז ממירים.
 
     מחזיר את נתיב הגיבוי, או None אם אין מה לגבות (טבלה ריקה/חדשה).
     """
@@ -237,15 +241,28 @@ def backup_table(conn, code: str) -> Path | None:
 
     folder = BACKUP_DIR / f"students_{code}"
     folder.mkdir(parents=True, exist_ok=True)
-    path = folder / f"students_{code}_{time.strftime('%Y-%m-%d_%H%M')}.csv.gz"
+    path = folder / f"students_{code}_{time.strftime('%Y-%m-%d_%H%M')}.xlsx"
 
+    # mkstemp מחזיר מתאר קובץ *פתוח*. בלי לסגור אותו הקובץ נשאר נעול
+    # בווינדוס, וגם הכתיבה וגם המחיקה בסוף נכשלות.
+    fd, tmp_name = tempfile.mkstemp(suffix=".csv", prefix="backup-")
+    os.close(fd)
+    tmp_csv = Path(tmp_name)
     try:
-        with gzip.open(path, "wt", encoding="utf-8-sig", newline="") as fh:
+        with io.open(tmp_csv, "w", encoding="utf-8", newline="") as fh:
             with conn.cursor() as cur:
                 cur.copy_expert(
                     f"copy public.students_{code} to stdout with csv header", fh)
+
+        # dtype=str כדי שתעודות זהות וסמלי מוסד לא יומרו למספרים ויאבדו
+        # אפסים מובילים, ולא יוצגו בכתיב מדעי.
+        df = pd.read_csv(tmp_csv, dtype=str, keep_default_na=False, low_memory=False)
+        with pd.ExcelWriter(path, engine="openpyxl") as writer:
+            df.to_excel(writer, index=False, sheet_name="תלמידים")
+            # RTL מוגדר על תצוגת הגיליון, לא על החוברת
+            writer.sheets["תלמידים"].sheet_view.rightToLeft = True
     finally:
-        conn.commit()   # מיותר ב-autocommit, נשאר כרשת ביטחון
+        tmp_csv.unlink(missing_ok=True)
 
     size_mb = path.stat().st_size / 1024 / 1024
     log.info("    גובו %s שורות -> %s (%.1fMB)", f"{rows:,}", path.name, size_mb)
@@ -256,7 +273,7 @@ def backup_table(conn, code: str) -> Path | None:
 
 def prune_backups(folder: Path) -> None:
     """משאיר רק את BACKUP_KEEP הגיבויים האחרונים, שהדיסק לא יתמלא."""
-    files = sorted(folder.glob("*.csv.gz"), key=lambda p: p.stat().st_mtime,
+    files = sorted(folder.glob("*.xlsx"), key=lambda p: p.stat().st_mtime,
                    reverse=True)
     for old_file in files[BACKUP_KEEP:]:
         old_file.unlink(missing_ok=True)
