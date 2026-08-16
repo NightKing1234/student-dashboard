@@ -67,6 +67,33 @@ def check_env_file(name, required_keys):
             problems.append(f"{name}: {key} עטוף במרכאות")
 
 
+def check_watch_folder():
+    """התיקייה המקומית אופציונלית — מדווחים על מצבה, לא נכשלים בלעדיה."""
+    print("\nתיקיית מצב\"ת מקומית:")
+    raw = ""
+    path = DASHBOARD_DIR / ".env.agent"
+    if path.exists():
+        # שם אחר מ-line, כדי לא להסתיר את פונקציית העזר line()
+        for row in path.read_text(encoding="utf-8").splitlines():
+            if row.strip().startswith("MATZEVET_WATCH_FOLDER="):
+                raw = row.split("=", 1)[1].strip()
+
+    if not raw:
+        print(f"{WARN} לא הוגדרה — הסוכן יעבוד מול האתר בלבד")
+        print("     להפעלה: למלא MATZEVET_WATCH_FOLDER ב-.env.agent")
+        return
+
+    folder = Path(raw)
+    if not folder.is_dir():
+        print(f"{BAD} הנתיב לא נמצא: {folder}")
+        problems.append(f"תיקיית המצב\"ת לא קיימת: {folder}")
+        return
+
+    csvs = list(folder.glob("*.csv"))
+    print(f"{OK} {folder}")
+    print(f"     {len(csvs)} קובצי CSV בתיקייה כרגע")
+
+
 def check_pipeline():
     print("\nתהליך העיבוד:")
     entry = PIPELINE_DIR / "Main_Module_6_files_using_JSON.py"
@@ -129,6 +156,7 @@ def main():
     check_env_file(".env.agent", ["SUPABASE_URL", "SUPABASE_ANON_KEY",
                                   "AGENT_EMAIL", "AGENT_PASSWORD"])
     check_pipeline()
+    check_watch_folder()
     check_connections()
 
     print()
