@@ -46,7 +46,8 @@ PIPELINE_DIR = PROJECT_ROOT / "Itay_Modules" / "python_modules"
 LOAD_SCRIPT = DASHBOARD_DIR / "scripts" / "load_main.py"
 
 BACKUP_DIR = AGENT_DIR / "backups"
-BACKUP_KEEP = 12          # כמה גיבויים לשמור לכל רשות (שנה של עדכונים חודשיים)
+BACKUP_KEEP = 12           # תקרת גיבויים לרשות, מגן מפני עדכונים תכופים
+BACKUP_MAX_AGE_DAYS = 90   # גיבוי ישן מזה נמחק (חוץ מהאחרון, שתמיד נשמר)
 
 WATCH_STATE = AGENT_DIR / "watch-state.json"
 WATCH_EVERY = 60          # כל כמה שניות לסרוק את תיקיית המצב"ת המקומית
@@ -272,12 +273,34 @@ def backup_table(conn, code: str) -> Path | None:
 
 
 def prune_backups(folder: Path) -> None:
-    """משאיר רק את BACKUP_KEEP הגיבויים האחרונים, שהדיסק לא יתמלא."""
+    """
+    מוחק גיבויים ישנים לפי שני כללים:
+      * מעל BACKUP_MAX_AGE_DAYS ימים
+      * מעבר ל-BACKUP_KEEP הגיבויים האחרונים (מגן מפני עדכונים תכופים)
+
+    **הגיבוי האחרון לעולם אינו נמחק**, גם אם עבר את הגיל. אחרת מערכת
+    שלא עודכנה חצי שנה הייתה נשארת בלי שום גיבוי, והעדכון הבא היה דורס
+    את הטבלה בלי רשת ביטחון.
+    """
     files = sorted(folder.glob("*.xlsx"), key=lambda p: p.stat().st_mtime,
                    reverse=True)
-    for old_file in files[BACKUP_KEEP:]:
-        old_file.unlink(missing_ok=True)
-        log.debug("    נמחק גיבוי ישן: %s", old_file.name)
+    if not files:
+        return
+
+    cutoff = time.time() - BACKUP_MAX_AGE_DAYS * 24 * 3600
+    removed = 0
+    for index, path in enumerate(files):
+        if index == 0:
+            continue                      # האחרון תמיד נשמר
+        too_old = path.stat().st_mtime < cutoff
+        beyond_limit = index >= BACKUP_KEEP
+        if too_old or beyond_limit:
+            path.unlink(missing_ok=True)
+            removed += 1
+            log.debug("    נמחק גיבוי %s (%s)", path.name,
+                      "מעל 90 יום" if too_old else "מעבר למכסה")
+    if removed:
+        log.info("    נמחקו %s גיבויים ישנים", removed)
 
 
 def table_count(conn, code: str) -> int:
@@ -484,12 +507,42 @@ def authority_moe_codes(conn) -> dict:
         return {moe: code for code, moe in cur.fetchall()}
 
 
+def file_version(path: Path) -> tuple:
+    """
+    כמה "חדש" הקובץ, לצורך בחירה בין גרסאות שנצברו בתיקייה.
+
+    מסתמך על חותמת הזמן ש**משרד החינוך** שם בשם הקובץ:
+
+        TALMIDIM_AM_2026_1400000_2026-08-15-06-30-11_from_moe.csv
+                                 └──────┬──────────┘
+
+    ולא על תאריך השינוי בדיסק. הסיבה: כלים כמו robocopy /COPY:DAT,
+    חילוץ מ-ZIP או סנכרון מרשת משמרים את תאריך המקור — ואז לקבצים
+    שהגיעו היום יכול להיות תאריך ישן יותר מאלה שהועתקו לפני חודשיים.
+    במקרה כזה בחירה לפי mtime הייתה טוענת נתונים ישנים ודורסת בהם את
+    העדכניים, בלי שאיש ישים לב.
+
+    אם אין חותמת בשם — נופלים לתאריך השינוי.
+    """
+    stamp = ""
+    for token in path.stem.split("_"):
+        # חותמת מהצורה 2026-08-15-06-30-11
+        if len(token) == 19 and token[:4].isdigit() and token.count("-") == 5:
+            stamp = token
+            break
+    # מחרוזת ההשוואה ראשונה: חותמת מהשם גוברת על תאריך הדיסק
+    return (1 if stamp else 0, stamp, path.stat().st_mtime)
+
+
 def group_files_by_authority(folder: Path, moe_codes: dict) -> dict:
     """
     מקבץ את קובצי ה-CSV בתיקייה לפי רשות.
 
     ההתאמה היא על *מילה שלמה* בשם הקובץ ולא על הכלה, כדי שקוד קצר
     כמו 120 לא ייתפס בטעות בתוך חותמת תאריך.
+
+    כשנצברו בתיקייה כמה גרסאות של אותו קובץ (החודש הקודם והנוכחי),
+    נבחרת העדכנית לפי file_version.
     """
     groups: dict = {}
     for path in folder.glob("*.csv"):
@@ -500,9 +553,8 @@ def group_files_by_authority(folder: Path, moe_codes: dict) -> dict:
         prefix = next((p for p in MOE_PREFIXES if path.name.upper().startswith(p)), None)
         if not prefix:
             continue
-        # אם יש כמה גרסאות לאותה קידומת — לוקחים את העדכנית
         current = groups.setdefault(moe, {}).get(prefix)
-        if current is None or path.stat().st_mtime > current.stat().st_mtime:
+        if current is None or file_version(path) > file_version(current):
             groups[moe][prefix] = path
     return groups
 
