@@ -1,20 +1,25 @@
 """
 סוכן העיבוד — רץ ברקע על המחשב של סבא ומטפל בהעלאות מהאתר.
 
-מחזור העבודה:
-  1. בודק ב-Supabase אם יש העלאה בסטטוס 'pending'
-  2. תופס אותה (מסמן 'processing') כדי ששני סוכנים לא יעבדו על אותה העלאה
-  3. מוריד את 6 הקבצים מ-Storage לתיקייה זמנית
-  4. מריץ את ה-pipeline של איתי על התיקייה הזו
-  5. טוען את הקובץ הראשי לטבלת students_{code} — ויוצר אותה אם אינה קיימת
-  6. מסמן 'done' עם מספר השורות, או 'failed' עם הודעת השגיאה
+שני מקורות עבודה:
 
-הכל עטוף כך שתקלה בהעלאה אחת לא מפילה את הסוכן.
+  א. העלאה מהאתר — כל 5 שניות בודק אם יש רשומה 'pending' ב-moe_uploads,
+     מוריד את הקבצים מ-Storage ומעבד.
+
+  ב. תיקיית מצב"ת מקומית — כל דקה סורק תיקייה שאליה מגיעים אוטומטית
+     קובצי משרד החינוך של כל המועצות, מקבץ אותם לפי קוד הרשות, ומעבד כל
+     מועצה שהקבצים שלה השתנו. נדרש MATZEVET_WATCH_FOLDER ב-.env.agent.
+
+בשני המקרים אותה ליבה: pipeline -> גיבוי הטבלה הקיימת -> טעינה ל-Supabase,
+והסטטוס מתועד ב-moe_uploads כך שנראה גם באתר.
+
+הכל עטוף כך שתקלה בעדכון אחד לא מפילה את הסוכן.
 """
 from __future__ import annotations
 
 import argparse
 import gzip
+import json
 import logging
 import os
 import shutil
@@ -41,6 +46,14 @@ LOAD_SCRIPT = DASHBOARD_DIR / "scripts" / "load_main.py"
 
 BACKUP_DIR = AGENT_DIR / "backups"
 BACKUP_KEEP = 12          # כמה גיבויים לשמור לכל רשות (שנה של עדכונים חודשיים)
+
+WATCH_STATE = AGENT_DIR / "watch-state.json"
+WATCH_EVERY = 60          # כל כמה שניות לסרוק את תיקיית המצב"ת המקומית
+FILE_SETTLE_SECONDS = 30  # קובץ שנגעו בו לאחרונה - ממתינים שהעתקתו תסתיים
+
+# ששת הקבצים שמשרד החינוך מפיץ, לפי הקידומת בשם
+MOE_PREFIXES = ("TALMIDIM", "PIRTEY_KESHER", "GORMEY_KESHER",
+                "MEGAMOT", "MOSDOT", "KITOT")
 
 UPLOADS_BUCKET = "moe-uploads"
 MAIN_FILE_SUFFIX = "_Talmidim_gormey_kesher_pirtey_kesher_mosdot_megamot_kitot.xlsx"
@@ -94,7 +107,12 @@ def setup_logging(verbose: bool) -> None:
 # ═══════════════════════════ מסד הנתונים ═══════════════════════════
 
 def connect():
-    return psycopg2.connect(
+    """
+    autocommit=True בכוונה: כל פעולה כאן היא הצהרה בודדת, ו-SELECT שנשאר
+    בטרנזקציה פתוחה מחזיק ACCESS SHARE על הטבלה — מה שחוסם את ה-TRUNCATE
+    של הטעינה עד שפג לה הזמן. זה הפיל את העיבוד פעמיים לפני שאותר.
+    """
+    conn = psycopg2.connect(
         host=require("PGHOST"),
         port=int(os.environ.get("PGPORT", "5432")),
         dbname=os.environ.get("PGDATABASE", "postgres"),
@@ -103,6 +121,8 @@ def connect():
         sslmode="require",
         connect_timeout=20,
     )
+    conn.autocommit = True
+    return conn
 
 
 def claim_next_upload(conn):
@@ -123,7 +143,6 @@ def claim_next_upload(conn):
             returning id, authority_code, storage_prefix, file_count
         """)
         row = cur.fetchone()
-    conn.commit()
     if not row:
         return None
     return {"id": row[0], "code": row[1], "prefix": row[2], "files": row[3]}
@@ -137,7 +156,6 @@ def finish_upload(conn, upload_id, status, rows=None, error=None):
                    error_message = %s
              where id = %s
         """, (status, rows, (error or "")[:500] or None, upload_id))
-    conn.commit()
 
 
 def ensure_table(conn, code: str) -> bool:
@@ -172,8 +190,35 @@ def ensure_table(conn, code: str) -> bool:
             insert into public.clients (authority_code) values (%s)
             on conflict (authority_code) do nothing
         """, (code,))
-    conn.commit()
     return True
+
+
+def check_moe_code(conn, code: str, file_code: str) -> None:
+    """
+    מוודא שקובצי המצב"ת שייכים לרשות שאליה נרשמה ההעלאה.
+
+    קוד הרשות אצלנו אינו בהכרח זה של משרד החינוך, ולכן ההשוואה היא מול
+    `authorities.moe_code`. בעדכון הראשון השדה ריק — אז לומדים אותו.
+    מכאן ואילך אי-התאמה עוצרת את העיבוד: היא מסמנת שהועלו קבצים של
+    מועצה אחרת, וטעינה כזו הייתה דורסת רשות שלמה בנתונים זרים.
+    """
+    with conn.cursor() as cur:
+        cur.execute("select moe_code from public.authorities where code = %s", (code,))
+        row = cur.fetchone()
+        known = row[0] if row else None
+
+        if known is None:
+            cur.execute("update public.authorities set moe_code = %s where code = %s",
+                        (file_code, code))
+            log.info("    קוד משרד החינוך לרשות %s נלמד: %s", code, file_code)
+            return
+
+    if known != file_code:
+        raise RuntimeError(
+            f"הקבצים אינם שייכים לרשות הזו. ההעלאה נרשמה לרשות {code} "
+            f"(קוד משרד החינוך {known}), אך הקבצים הם של רשות {file_code}. "
+            "יש להעלות אותם תחת המועצה הנכונה."
+        )
 
 
 def backup_table(conn, code: str) -> Path | None:
@@ -200,9 +245,7 @@ def backup_table(conn, code: str) -> Path | None:
                 cur.copy_expert(
                     f"copy public.students_{code} to stdout with csv header", fh)
     finally:
-        # חובה לסגור את הטרנזקציה: ה-COPY מחזיק נעילה על הטבלה, ובלי סגירה
-        # ה-TRUNCATE של הטעינה ייתקע עד שיפוג לו הזמן.
-        conn.commit()
+        conn.commit()   # מיותר ב-autocommit, נשאר כרשת ביטחון
 
     size_mb = path.stat().st_size / 1024 / 1024
     log.info("    גובו %s שורות -> %s (%.1fMB)", f"{rows:,}", path.name, size_mb)
@@ -327,48 +370,63 @@ def load_to_db(main_file: Path, code: str) -> None:
     log.debug("פלט הטעינה:\n%s", (proc.stdout or "")[-800:])
 
 
+def process_files(conn, code: str, work_dir: Path) -> int:
+    """
+    הליבה המשותפת: מקבלת תיקייה עם 6 קבצי מצב"ת של רשות אחת, מריצה את
+    ה-pipeline, מגבה את הטבלה הקיימת וטוענת. מחזירה את מספר השורות.
+
+    שני מקורות מגיעים לכאן — העלאה מהאתר וסריקת התיקייה המקומית.
+    """
+    log.info("2/5 מריץ את ה-pipeline…")
+    started = time.time()
+    run_pipeline(work_dir)
+    log.info("    הסתיים ב-%.0f שניות", time.time() - started)
+
+    matches = sorted(work_dir.glob(f"*{MAIN_FILE_SUFFIX}"),
+                     key=lambda p: p.stat().st_mtime, reverse=True)
+    if not matches:
+        raise RuntimeError("ה-pipeline לא יצר קובץ ראשי")
+    main_file = matches[0]
+
+    # ה-pipeline גוזר את קוד הרשות משם קובץ המצב"ת, והוא לא בהכרח הקוד
+    # שלנו (כפר = 120 אצלנו, 5108 במשרד החינוך). לכן ההשוואה היא מול
+    # moe_code שנלמד בעדכון הראשון — כדי לתפוס את המקרה המסוכן: קבצים
+    # של מועצה אחת שהועלו תחת מועצה אחרת.
+    file_code = main_file.name[: -len(MAIN_FILE_SUFFIX)]
+    check_moe_code(conn, code, file_code)
+    log.info("    קובץ ראשי: %s (%.1fMB)",
+             main_file.name, main_file.stat().st_size / 1024 / 1024)
+
+    log.info("3/5 מוודא שהטבלה קיימת…")
+    is_new = ensure_table(conn, code)
+    if is_new:
+        log.info("    נוצרה טבלה חדשה לרשות %s", code)
+
+    # טבלה שזה עתה נוצרה ריקה — אין מה לגבות
+    if is_new:
+        log.info("4/5 גיבוי — מדולג (טבלה חדשה)")
+    else:
+        log.info("4/5 מגבה את הטבלה הנוכחית…")
+        backup_table(conn, code)
+
+    log.info("5/5 טוען ל-Supabase…")
+    load_to_db(main_file, code)
+    return table_count(conn, code)
+
+
 def process(conn, job) -> None:
+    """העלאה שהגיעה מהאתר: מוריד מ-Storage ומעביר לליבה."""
     code = job["code"]
     log.info("═" * 60)
-    log.info("העלאה חדשה — רשות %s (%s קבצים)", code, job["files"])
+    log.info("העלאה מהאתר — רשות %s (%s קבצים)", code, job["files"])
 
     work_dir = Path(tempfile.mkdtemp(prefix=f"matzevet-{code}-"))
     try:
         log.info("1/5 מוריד קבצים…")
         download_files(job["prefix"], work_dir)
-
-        log.info("2/5 מריץ את ה-pipeline…")
-        started = time.time()
-        run_pipeline(work_dir)
-        log.info("    הסתיים ב-%.0f שניות", time.time() - started)
-
-        matches = sorted(work_dir.glob(f"*{MAIN_FILE_SUFFIX}"),
-                         key=lambda p: p.stat().st_mtime, reverse=True)
-        if not matches:
-            raise RuntimeError("ה-pipeline לא יצר קובץ ראשי")
-        main_file = matches[0]
-        log.info("    קובץ ראשי: %s (%.1fMB)",
-                 main_file.name, main_file.stat().st_size / 1024 / 1024)
-
-        log.info("3/5 מוודא שהטבלה קיימת…")
-        is_new = ensure_table(conn, code)
-        if is_new:
-            log.info("    נוצרה טבלה חדשה לרשות %s", code)
-
-        # טבלה שזה עתה נוצרה ריקה — אין מה לגבות
-        if is_new:
-            log.info("4/5 גיבוי — מדולג (טבלה חדשה)")
-        else:
-            log.info("4/5 מגבה את הטבלה הנוכחית…")
-            backup_table(conn, code)
-
-        log.info("5/5 טוען ל-Supabase…")
-        load_to_db(main_file, code)
-        rows = table_count(conn, code)
-
+        rows = process_files(conn, code, work_dir)
         finish_upload(conn, job["id"], "done", rows=rows)
         log.info("✓ הושלם — %s שורות בטבלה students_%s", f"{rows:,}", code)
-
     except Exception as exc:
         log.error("✗ נכשל: %s", exc)
         log.debug(traceback.format_exc())
@@ -380,6 +438,144 @@ def process(conn, job) -> None:
         shutil.rmtree(work_dir, ignore_errors=True)
 
 
+# ═══════════════ סריקת תיקיית המצב"ת המקומית ═══════════════
+#
+# על המחשב של סבא יש תיקייה שאליה מגיעים קובצי המצב"ת של כל המועצות.
+# הסוכן סורק אותה, מקבץ את הקבצים לפי קוד הרשות, ומעבד כל מועצה
+# שהקבצים שלה השתנו מאז הפעם הקודמת.
+
+
+def load_watch_state() -> dict:
+    if WATCH_STATE.exists():
+        try:
+            return json.loads(WATCH_STATE.read_text(encoding="utf-8"))
+        except Exception:
+            log.warning("קובץ המצב פגום — מתחילים מחדש")
+    return {}
+
+
+def save_watch_state(state: dict) -> None:
+    WATCH_STATE.write_text(json.dumps(state, ensure_ascii=False, indent=2),
+                           encoding="utf-8")
+
+
+def authority_moe_codes(conn) -> dict:
+    """מיפוי קוד משרד החינוך -> קוד הרשות אצלנו."""
+    with conn.cursor() as cur:
+        cur.execute("""select code, moe_code from public.authorities
+                        where moe_code is not null and is_active""")
+        return {moe: code for code, moe in cur.fetchall()}
+
+
+def group_files_by_authority(folder: Path, moe_codes: dict) -> dict:
+    """
+    מקבץ את קובצי ה-CSV בתיקייה לפי רשות.
+
+    ההתאמה היא על *מילה שלמה* בשם הקובץ ולא על הכלה, כדי שקוד קצר
+    כמו 120 לא ייתפס בטעות בתוך חותמת תאריך.
+    """
+    groups: dict = {}
+    for path in folder.glob("*.csv"):
+        tokens = set(path.stem.split("_"))
+        moe = next((m for m in moe_codes if m in tokens), None)
+        if not moe:
+            continue
+        prefix = next((p for p in MOE_PREFIXES if path.name.upper().startswith(p)), None)
+        if not prefix:
+            continue
+        # אם יש כמה גרסאות לאותה קידומת — לוקחים את העדכנית
+        current = groups.setdefault(moe, {}).get(prefix)
+        if current is None or path.stat().st_mtime > current.stat().st_mtime:
+            groups[moe][prefix] = path
+    return groups
+
+
+def fingerprint(files: dict) -> str:
+    """טביעת אצבע של קבוצת קבצים — משתנה רק כשהתוכן באמת התחלף."""
+    parts = []
+    for prefix in sorted(files):
+        st = files[prefix].stat()
+        parts.append(f"{files[prefix].name}:{st.st_size}:{int(st.st_mtime)}")
+    return "|".join(parts)
+
+
+def files_settled(files: dict) -> bool:
+    """קובץ שעדיין מועתק לתיקייה — לא נוגעים בו עד שיירגע."""
+    now = time.time()
+    return all(now - f.stat().st_mtime > FILE_SETTLE_SECONDS for f in files.values())
+
+
+def record_local_run(conn, code: str, folder: Path):
+    """רושם את הריצה ב-moe_uploads כדי שתופיע בהיסטוריה באתר."""
+    with conn.cursor() as cur:
+        cur.execute("""
+            insert into public.moe_uploads
+                   (authority_code, storage_prefix, file_count, status)
+            values (%s, %s, 6, 'processing') returning id
+        """, (code, f"מהתיקייה המקומית: {folder}"))
+        return cur.fetchone()[0]
+
+
+def scan_watch_folder(conn, folder: Path) -> None:
+    if not folder.is_dir():
+        log.warning("תיקיית המצב\"ת לא נמצאה: %s", folder)
+        return
+
+    state = load_watch_state()
+    moe_codes = authority_moe_codes(conn)
+    if not moe_codes:
+        return
+
+    groups = group_files_by_authority(folder, moe_codes)
+
+    for moe, files in sorted(groups.items()):
+        code = moe_codes[moe]
+        missing = [p for p in MOE_PREFIXES if p not in files]
+        if missing:
+            log.debug("רשות %s — חסרים %s, מדלג", code, ", ".join(missing))
+            continue
+
+        fp = fingerprint(files)
+        if state.get(code) == fp:
+            continue                      # כבר עובד, שום דבר לא השתנה
+
+        if not files_settled(files):
+            log.info("רשות %s — הקבצים עדיין בהעתקה, ממתין", code)
+            continue
+
+        log.info("═" * 60)
+        log.info("קבצים חדשים בתיקייה — רשות %s (קוד מש\"ח %s)", code, moe)
+
+        # מעתיקים רק את ששת הקבצים של הרשות הזו: ה-pipeline בוחר קובץ לפי
+        # קידומת מתוך התיקייה, ואם יש בה כמה מועצות הוא היה מערבב ביניהן.
+        work_dir = Path(tempfile.mkdtemp(prefix=f"matzevet-local-{code}-"))
+        upload_id = None
+        try:
+            for path in files.values():
+                shutil.copy2(path, work_dir / path.name)
+            log.info("1/5 הועתקו 6 קבצים לעיבוד")
+
+            upload_id = record_local_run(conn, code, folder)
+            rows = process_files(conn, code, work_dir)
+
+            finish_upload(conn, upload_id, "done", rows=rows)
+            state[code] = fp
+            save_watch_state(state)
+            log.info("✓ הושלם — %s שורות בטבלה students_%s", f"{rows:,}", code)
+
+        except Exception as exc:
+            log.error("✗ נכשל: %s", exc)
+            log.debug(traceback.format_exc())
+            if upload_id:
+                try:
+                    finish_upload(conn, upload_id, "failed", error=str(exc))
+                except Exception:
+                    pass
+            # לא שומרים את טביעת האצבע — כך ננסה שוב בסבב הבא
+        finally:
+            shutil.rmtree(work_dir, ignore_errors=True)
+
+
 # ═══════════════════════════ הלולאה ═══════════════════════════
 
 def main() -> None:
@@ -387,6 +583,10 @@ def main() -> None:
     ap.add_argument("--interval", type=int, default=5, help="כל כמה שניות לבדוק (ברירת מחדל 5)")
     ap.add_argument("--once", action="store_true", help="לעבד העלאה אחת ולצאת")
     ap.add_argument("--verbose", action="store_true", help="לוג מפורט")
+    ap.add_argument("--watch-folder",
+                    help='תיקיית קובצי מצב"ת מקומית (ברירת מחדל: MATZEVET_WATCH_FOLDER)')
+    ap.add_argument("--no-watch", action="store_true",
+                    help="לא לסרוק את התיקייה המקומית")
     args = ap.parse_args()
 
     load_env_files()
@@ -397,6 +597,29 @@ def main() -> None:
     if not PIPELINE_DIR.exists():
         sys.exit(f"לא נמצאה תיקיית ה-pipeline: {PIPELINE_DIR}")
 
+    # תיקיית מצב"ת מקומית — אופציונלית. בלעדיה הסוכן עובד רק מול האתר.
+    watch_folder = None
+    if not args.no_watch:
+        raw = args.watch_folder or os.environ.get("MATZEVET_WATCH_FOLDER", "").strip()
+        if raw:
+            watch_folder = Path(raw)
+            log.info('תיקיית מצב"ת מקומית: %s (סריקה כל %s שניות)',
+                     watch_folder, WATCH_EVERY)
+        else:
+            log.info('לא הוגדרה תיקיית מצב"ת מקומית — עובד מול האתר בלבד')
+
+    last_scan = 0.0
+
+    # ריצה שנקטעה משאירה תיקיית עבודה זמנית. מנקים בעלייה כדי שלא
+    # יצטברו עשרות תיקיות של 10MB לאורך חודשים.
+    stale = 0
+    for leftover in Path(tempfile.gettempdir()).glob("matzevet-*"):
+        if leftover.is_dir() and time.time() - leftover.stat().st_mtime > 3600:
+            shutil.rmtree(leftover, ignore_errors=True)
+            stale += 1
+    if stale:
+        log.info("נוקו %s תיקיות עבודה שנשארו מריצות קודמות", stale)
+
     conn = None
     idle_logged = False
 
@@ -405,6 +628,20 @@ def main() -> None:
             if conn is None or conn.closed:
                 conn = connect()
                 log.info("מחובר ל-Supabase")
+
+            # מצב בדיקה: סבב אחד של כל מקורות העבודה, ואז יציאה.
+            # (התנאי הקודם בדק רק אם הייתה העלאה מהאתר, ולכן כשהעבודה הגיעה
+            #  מהתיקייה המקומית הלולאה לא הסתיימה לעולם.)
+            if args.once:
+                if watch_folder:
+                    scan_watch_folder(conn, watch_folder)
+                job = claim_next_upload(conn)
+                if job:
+                    process(conn, job)
+                else:
+                    log.info("אין העלאות ממתינות באתר")
+                log.info("סבב בדיקה הסתיים")
+                break
 
             job = claim_next_upload(conn)
             if job:
@@ -415,8 +652,10 @@ def main() -> None:
                     log.info("אין העלאות ממתינות — ממתין…")
                     idle_logged = True
 
-            if args.once and job:
-                break
+            # סריקת התיקייה המקומית — בקצב נפרד, איטי יותר מהתשאול
+            if watch_folder and time.time() - last_scan > WATCH_EVERY:
+                last_scan = time.time()
+                scan_watch_folder(conn, watch_folder)
 
         except KeyboardInterrupt:
             log.info("הופסק ידנית")

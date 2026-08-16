@@ -1,8 +1,10 @@
 @echo off
-chcp 65001 >nul
+REM Processes one pending upload and exits. For testing.
 cd /d "%~dp0"
-call venv\Scripts\activate.bat
-echo מעבד העלאה אחת ויוצא (למצב בדיקה)
-echo.
-python worker.py --once --verbose
+if not exist "venv\Scripts\python.exe" (
+    echo   [ERROR] Not installed yet. Run setup.bat first.
+    pause
+    exit /b 1
+)
+venv\Scripts\python.exe worker.py --once --verbose
 pause

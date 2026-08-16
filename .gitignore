@@ -27,7 +27,11 @@ vite.config.d.ts
 # סוכן העיבוד
 agent/venv
 agent/agent.log*
+agent/watch-state.json
+agent/install-service.log
 
 # גיבויים ותוצרי אריזה — נשארים מקומית
 agent/backups
 agent/dist
+
+__pycache__/

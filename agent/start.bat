@@ -1,8 +1,10 @@
 @echo off
-chcp 65001 >nul
+REM Runs the agent in the foreground. Ctrl+C to stop.
 cd /d "%~dp0"
-call venv\Scripts\activate.bat
-echo מפעיל את סוכן העיבוד. לעצירה: Ctrl+C
-echo.
-python worker.py --interval 5
+if not exist "venv\Scripts\python.exe" (
+    echo   [ERROR] Not installed yet. Run setup.bat first.
+    pause
+    exit /b 1
+)
+venv\Scripts\python.exe worker.py --interval 5
 pause
