@@ -7,6 +7,7 @@
 בודק לפי הסדר: ספריות, קובצי הגדרות, מיקום ה-pipeline, וחיבור בפועל.
 """
 import io
+import json
 import sys
 from pathlib import Path
 
@@ -92,6 +93,23 @@ def check_watch_folder():
     csvs = list(folder.glob("*.csv"))
     print(f"{OK} {folder}")
     print(f"     {len(csvs)} קובצי CSV בתיקייה כרגע")
+
+    # מה יקרה לקבצים האלה — השאלה הראשונה כשמחברים תיקייה מלאה
+    state = {}
+    state_file = AGENT_DIR / "watch-state.json"
+    if state_file.exists():
+        try:
+            state = json.loads(state_file.read_text(encoding="utf-8"))
+        except Exception:
+            print(f"{WARN} watch-state.json פגום — יירשם מצב פתיחה מחדש")
+
+    if state.get("folder") == str(folder):
+        print(f"     מצב פתיחה נרשם ב-{state.get('baseline_at', 'לא ידוע')} — "
+              f"{len(state.get('authorities', {}))} רשויות במעקב")
+        print("     יעובד רק מה שיתעדכן מכאן ואילך")
+    else:
+        print("     בהפעלה הראשונה יירשם מצב פתיחה — "
+              "הקבצים שכבר בתיקייה לא יעובדו")
 
 
 def check_pipeline():

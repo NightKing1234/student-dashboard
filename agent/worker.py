@@ -486,17 +486,40 @@ def process(conn, job) -> None:
 
 
 def load_watch_state() -> dict:
-    if WATCH_STATE.exists():
-        try:
-            return json.loads(WATCH_STATE.read_text(encoding="utf-8"))
-        except Exception:
-            log.warning("קובץ המצב פגום — מתחילים מחדש")
-    return {}
+    """
+    מבנה הקובץ:
+
+        {"version": 2,
+         "folder": "D:\\מצבת\\נכנס",
+         "baseline_at": "2026-08-17T09:12:03",
+         "authorities": {"1400000": "טביעת אצבע", ...}}
+
+    גרסה 1 הייתה מילון שטוח של קוד -> טביעת אצבע, בלי רישום מצב פתיחה.
+    """
+    empty = {"version": 2, "folder": "", "baseline_at": "", "authorities": {}}
+    if not WATCH_STATE.exists():
+        return empty
+    try:
+        raw = json.loads(WATCH_STATE.read_text(encoding="utf-8"))
+    except Exception:
+        log.warning("קובץ המצב פגום — מתחילים מחדש")
+        return empty
+
+    if raw.get("version") == 2:
+        raw.setdefault("authorities", {})
+        return raw
+
+    # שדרוג מגרסה 1: מה שכבר עובד נשמר, והתיקייה נחשבת מוכרת — אחרת
+    # שדרוג גרסה היה מריץ מחדש את כל מה שכבר עלה.
+    return {"version": 2, "folder": "", "baseline_at": "(שודרג מגרסה קודמת)",
+            "authorities": {k: v for k, v in raw.items() if isinstance(v, str)}}
 
 
 def save_watch_state(state: dict) -> None:
-    WATCH_STATE.write_text(json.dumps(state, ensure_ascii=False, indent=2),
-                           encoding="utf-8")
+    tmp = WATCH_STATE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2),
+                   encoding="utf-8")
+    tmp.replace(WATCH_STATE)     # החלפה אטומית: הפסקת חשמל לא משאירה קובץ חצי
 
 
 def authority_moe_codes(conn) -> dict:
@@ -524,14 +547,13 @@ def file_version(path: Path) -> tuple:
 
     אם אין חותמת בשם — נופלים לתאריך השינוי.
     """
-    stamp = ""
     for token in path.stem.split("_"):
         # חותמת מהצורה 2026-08-15-06-30-11
         if len(token) == 19 and token[:4].isdigit() and token.count("-") == 5:
-            stamp = token
-            break
-    # מחרוזת ההשוואה ראשונה: חותמת מהשם גוברת על תאריך הדיסק
-    return (1 if stamp else 0, stamp, path.stat().st_mtime)
+            # שובר שוויון בשם ולא ב-mtime: בתיקייה של שבע שנים זה חוסך
+            # קריאת stat מכל קובץ, וגם דטרמיניסטי בין ריצות.
+            return (1, token, path.name)
+    return (0, "", path.stat().st_mtime)
 
 
 def group_files_by_authority(folder: Path, moe_codes: dict) -> dict:
@@ -545,27 +567,33 @@ def group_files_by_authority(folder: Path, moe_codes: dict) -> dict:
     נבחרת העדכנית לפי file_version.
     """
     groups: dict = {}
+    best: dict = {}          # (moe, prefix) -> הגרסה של הקובץ שנבחר עד כה
     for path in folder.glob("*.csv"):
+        prefix = next((p for p in MOE_PREFIXES if path.name.upper().startswith(p)), None)
+        if not prefix:
+            continue
         tokens = set(path.stem.split("_"))
         moe = next((m for m in moe_codes if m in tokens), None)
         if not moe:
             continue
-        prefix = next((p for p in MOE_PREFIXES if path.name.upper().startswith(p)), None)
-        if not prefix:
-            continue
-        current = groups.setdefault(moe, {}).get(prefix)
-        if current is None or file_version(path) > file_version(current):
-            groups[moe][prefix] = path
+        version = file_version(path)
+        if best.get((moe, prefix), ()) < version:
+            best[(moe, prefix)] = version
+            groups.setdefault(moe, {})[prefix] = path
     return groups
 
 
 def fingerprint(files: dict) -> str:
-    """טביעת אצבע של קבוצת קבצים — משתנה רק כשהתוכן באמת התחלף."""
-    parts = []
-    for prefix in sorted(files):
-        st = files[prefix].stat()
-        parts.append(f"{files[prefix].name}:{st.st_size}:{int(st.st_mtime)}")
-    return "|".join(parts)
+    """
+    טביעת אצבע של קבוצת קבצים — משתנה רק כשהתוכן באמת התחלף.
+
+    שם + גודל בלבד, בלי mtime: שם הקובץ נושא את חותמת משרד החינוך ולכן
+    הוא ייחודי לכל עדכון. mtime לעומת זאת משתנה בכל העתקה מחדש — וסנכרון
+    שמעתיק את התיקייה כולה מדי חודש היה נראה כמו עדכון של כל המועצות,
+    וגורר טעינה מחדש של אותם נתונים בדיוק.
+    """
+    return "|".join(f"{files[p].name}:{files[p].stat().st_size}"
+                    for p in sorted(files))
 
 
 def files_settled(files: dict) -> bool:
@@ -585,7 +613,32 @@ def record_local_run(conn, code: str, folder: Path):
         return cur.fetchone()[0]
 
 
-def scan_watch_folder(conn, folder: Path) -> None:
+def take_baseline(state: dict, folder: Path, groups: dict, moe_codes: dict) -> None:
+    """
+    רושם את מה שכבר נמצא בתיקייה כ"מוכר", בלי לעבד שום דבר.
+
+    התיקייה אצל סבא מתעדכנת כל חודש כבר שבע שנים. בלי זה, הסבב הראשון
+    היה טוען לכל מועצה את מערכת הקבצים העדכנית שנמצאה שם — עדכון המוני
+    שאיש לא ביקש, ברגע שמחברים את הסוכן. מכאן ואילך מטופל רק מה שמגיע
+    *אחרי* החיבור.
+    """
+    for moe, files in groups.items():
+        if all(p in files for p in MOE_PREFIXES):
+            state["authorities"][moe_codes[moe]] = fingerprint(files)
+
+    state["folder"] = str(folder)
+    state["baseline_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    save_watch_state(state)
+
+    log.info("═" * 60)
+    log.info('חיבור ראשון לתיקיית המצב"ת: %s', folder)
+    log.info("נרשם מצב פתיחה — %s רשויות. הקבצים הקיימים *לא* יעובדו.",
+             len(state["authorities"]))
+    log.info("מכאן ואילך יעובד רק מה שיתעדכן בתיקייה.")
+    log.info("═" * 60)
+
+
+def scan_watch_folder(conn, folder: Path, process_existing: bool = False) -> None:
     if not folder.is_dir():
         log.warning("תיקיית המצב\"ת לא נמצאה: %s", folder)
         return
@@ -597,6 +650,20 @@ def scan_watch_folder(conn, folder: Path) -> None:
 
     groups = group_files_by_authority(folder, moe_codes)
 
+    if process_existing:
+        # "תעבד עכשיו את מה שיש" — מתעלמים ממה שכבר נרשם, אחרת מצב
+        # הפתיחה שנרשם קודם היה חוסם בדיוק את מה שביקשו להריץ.
+        state["authorities"] = {}
+    else:
+        # תיקייה שלא נראתה קודם — רק רושמים מה יש בה ויוצאים.
+        # גם החלפת תיקייה נחשבת חיבור חדש, ולא סיבה לטעון מחדש הכל.
+        known = state.get("folder", "")
+        if known != str(folder):
+            if known:
+                log.info('תיקיית המצב"ת השתנתה: %s ← %s', folder, known)
+            take_baseline(state, folder, groups, moe_codes)
+            return
+
     for moe, files in sorted(groups.items()):
         code = moe_codes[moe]
         missing = [p for p in MOE_PREFIXES if p not in files]
@@ -605,8 +672,13 @@ def scan_watch_folder(conn, folder: Path) -> None:
             continue
 
         fp = fingerprint(files)
-        if state.get(code) == fp:
+        if state["authorities"].get(code) == fp:
             continue                      # כבר עובד, שום דבר לא השתנה
+
+        # רשות שנוספה למערכת אחרי רישום מצב הפתיחה: הקבצים שלה ישבו
+        # בתיקייה מלכתחילה, ולכן זו טעינה ראשונה ולא עדכון.
+        if not process_existing and code not in state["authorities"]:
+            log.info("רשות %s נוספה למערכת — טעינה ראשונה מהתיקייה", code)
 
         if not files_settled(files):
             log.info("רשות %s — הקבצים עדיין בהעתקה, ממתין", code)
@@ -628,7 +700,8 @@ def scan_watch_folder(conn, folder: Path) -> None:
             rows = process_files(conn, code, work_dir)
 
             finish_upload(conn, upload_id, "done", rows=rows)
-            state[code] = fp
+            state["authorities"][code] = fp
+            state["folder"] = str(folder)
             save_watch_state(state)
             log.info("✓ הושלם — %s שורות בטבלה students_%s", f"{rows:,}", code)
 
@@ -656,6 +729,9 @@ def main() -> None:
                     help='תיקיית קובצי מצב"ת מקומית (ברירת מחדל: MATZEVET_WATCH_FOLDER)')
     ap.add_argument("--no-watch", action="store_true",
                     help="לא לסרוק את התיקייה המקומית")
+    ap.add_argument("--process-existing", action="store_true",
+                    help="לעבד עכשיו את מה שכבר בתיקייה (ברירת המחדל: לדלג "
+                         "על הקיים ולעקוב רק אחרי מה שמתעדכן מכאן)")
     args = ap.parse_args()
 
     load_env_files()
@@ -674,6 +750,15 @@ def main() -> None:
             watch_folder = Path(raw)
             log.info('תיקיית מצב"ת מקומית: %s (סריקה כל %s שניות)',
                      watch_folder, WATCH_EVERY)
+            seen = load_watch_state()
+            if args.process_existing:
+                log.warning("--process-existing: הקבצים שכבר בתיקייה יעובדו עכשיו")
+            elif seen.get("folder") == str(watch_folder):
+                log.info("מצב פתיחה נרשם ב-%s — %s רשויות במעקב",
+                         seen.get("baseline_at") or "לא ידוע",
+                         len(seen.get("authorities", {})))
+            else:
+                log.info("חיבור ראשון לתיקייה — ייסרק מצב הפתיחה בלי לעבד")
         else:
             log.info('לא הוגדרה תיקיית מצב"ת מקומית — עובד מול האתר בלבד')
 
@@ -703,7 +788,7 @@ def main() -> None:
             #  מהתיקייה המקומית הלולאה לא הסתיימה לעולם.)
             if args.once:
                 if watch_folder:
-                    scan_watch_folder(conn, watch_folder)
+                    scan_watch_folder(conn, watch_folder, args.process_existing)
                 job = claim_next_upload(conn)
                 if job:
                     process(conn, job)
@@ -724,7 +809,7 @@ def main() -> None:
             # סריקת התיקייה המקומית — בקצב נפרד, איטי יותר מהתשאול
             if watch_folder and time.time() - last_scan > WATCH_EVERY:
                 last_scan = time.time()
-                scan_watch_folder(conn, watch_folder)
+                scan_watch_folder(conn, watch_folder, args.process_existing)
 
         except KeyboardInterrupt:
             log.info("הופסק ידנית")
