@@ -28,7 +28,10 @@ export default function DataTab({ code }: Props) {
   const [done, setDone] = useState(false)
 
   useEffect(() => {
-    fetchUploads(code).then(setUploads).catch((e) => setError(e.message))
+    fetchUploads(code)
+      .then(setUploads)
+      // מסמנים שזו טעינת ההיסטוריה ולא ההעלאה — שתי שגיאות שנראו זהות
+      .catch((e: Error) => setError(`טעינת היסטוריית העדכונים — ${e.message}`))
   }, [code])
 
   // מיפוי בין הקידומות הנדרשות לקבצים שנבחרו בפועל
@@ -59,7 +62,9 @@ export default function DataTab({ code }: Props) {
   return (
     <div className="space-y-6">
       {error && (
-        <p className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-700">שגיאה: {error}</p>
+        <p className="whitespace-pre-wrap rounded-lg bg-red-50 px-4 py-3 text-sm leading-relaxed text-red-700">
+          שגיאה: {error}
+        </p>
       )}
 
       {/* צפייה בנתונים */}

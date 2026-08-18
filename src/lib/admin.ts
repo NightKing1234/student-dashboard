@@ -332,22 +332,52 @@ export async function fetchUploads(code: string): Promise<MoeUpload[]> {
  * העיבוד עצמו (pandas) רץ מחוץ לענן — סוכן העיבוד תופס את הרשומה
  * תוך שניות, מוריד, מריץ וטוען. ראה agent/README.md.
  */
+/**
+ * עוטף שלב בהעלאה כך שהשגיאה תגיד **איפה** זה נפל.
+ *
+ * בלי זה כל כשל הגיע למסך כהודעה חשופה אחת — למשל
+ * `Unexpected token '<'` — בלי לרמוז אם נפל קובץ מסוים, איזה, או שלב
+ * הרישום. ההודעה הזו נראית כמו באג באתר, אבל היא בעצם אומרת שמישהו
+ * בדרך (פרוקסי, מסנן תוכן, תוספת דפדפן) החזיר דף HTML במקום התשובה.
+ */
+async function step<T>(label: string, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run()
+  } catch (e) {
+    const raw = e instanceof Error ? e.message : String(e)
+    if (/not valid JSON|Unexpected token/i.test(raw)) {
+      throw new Error(
+        `${label} — התקבל דף HTML במקום תשובת שרת. ` +
+        `זו כמעט תמיד חסימה בדרך: מסנן תוכן ברשת, פרוקסי, או תוספת דפדפן. ` +
+        `נסה בחלון סתר או ברשת אחרת. [${raw.slice(0, 60)}]`
+      )
+    }
+    if (/Failed to fetch|NetworkError/i.test(raw)) {
+      throw new Error(`${label} — לא הייתה תשובה מהשרת. בדוק חיבור לאינטרנט. [${raw}]`)
+    }
+    throw new Error(`${label} — ${raw}`)
+  }
+}
+
 export async function uploadMoeFiles(code: string, files: File[]) {
   const prefix = `${code}/${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}`
 
+  let index = 0
   for (const file of files) {
-    const { error } = await supabase.storage
-      .from(UPLOADS_BUCKET)
-      .upload(`${prefix}/${file.name}`, file)
-    if (error) throw error
+    index += 1
+    const where = `העלאת קובץ ${index}/${files.length} (${file.name}, ${(file.size / 1e6).toFixed(1)}MB)`
+    const { error } = await step(where, async () =>
+      await supabase.storage.from(UPLOADS_BUCKET).upload(`${prefix}/${file.name}`, file))
+    if (error) throw new Error(`${where} — ${error.message}`)
   }
 
-  const { error } = await supabase.from('moe_uploads').insert({
-    authority_code: code,
-    storage_prefix: prefix,
-    file_count: files.length,
-    status: 'pending',
-  })
-  if (error) throw error
+  const { error } = await step('רישום ההעלאה', async () =>
+    await supabase.from('moe_uploads').insert({
+      authority_code: code,
+      storage_prefix: prefix,
+      file_count: files.length,
+      status: 'pending',
+    }))
+  if (error) throw new Error(`רישום ההעלאה — ${error.message}`)
   return prefix
 }
