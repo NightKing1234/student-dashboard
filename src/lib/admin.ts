@@ -11,6 +11,11 @@ export interface Authority {
   code: string
   name: string
   is_active: boolean
+  /**
+   * קוד הרשות אצל משרד החינוך — אינו בהכרח הקוד שלנו (כפר = 120 אצלנו,
+   * 5108 שם). נדרש להשוואת רשות מגורים/מוסד בשדות המחושבים.
+   */
+  moe_code: string | null
 }
 
 export interface Client {
@@ -62,6 +67,10 @@ export interface ManagedUser {
   scope_values: string[]
   /** מושהה — לא יכול להתחבר, ולא רואה נתונים גם עם טוקן ישן */
   is_suspended: boolean
+  /** תיאוריים בלבד; קיימים רק אחרי מיגרציה 010 */
+  job_title?: string | null
+  institution_name?: string | null
+  institution_code?: string | null
 }
 
 export interface MoeUpload {
@@ -88,7 +97,7 @@ export interface ScopeOption {
 export async function fetchAuthorities(): Promise<Authority[]> {
   const { data, error } = await supabase
     .from('authorities')
-    .select('code, name, is_active')
+    .select('code, name, is_active, moe_code')
     .order('name')
   if (error) throw error
   return (data ?? []) as Authority[]
@@ -184,13 +193,36 @@ export async function documentUrl(doc: ClientDocument): Promise<string | null> {
 
 // ─────────────────────────── הרשאות ───────────────────────────
 
-export async function fetchUsers(): Promise<ManagedUser[]> {
+const USER_BASE_COLUMNS =
+  'id, email, display_name, role, authority_codes, scope_level, scope_values, is_suspended'
+const USER_PROFILE_COLUMNS = 'job_title, institution_name, institution_code'
+
+/**
+ * מחזירה את המשתמשים, ומדווחת אם שדות התפקיד והמוסד קיימים במסד.
+ *
+ * הם נוספים ב[מיגרציה 010](../../supabase/migrations/010_user_profile_fields.sql).
+ * עד שתורץ, הבקשה המורחבת נכשלת והמסך פשוט לא מציג את השדות — במקום
+ * להיכשל כולו. מיד אחרי ההרצה הם מופיעים בלי פריסה מחדש.
+ */
+export async function fetchUsers(): Promise<{
+  users: ManagedUser[]
+  hasProfileFields: boolean
+}> {
+  const extended = await supabase
+    .from('users')
+    .select(`${USER_BASE_COLUMNS}, ${USER_PROFILE_COLUMNS}`)
+    .order('email')
+
+  if (!extended.error) {
+    return { users: (extended.data ?? []) as ManagedUser[], hasProfileFields: true }
+  }
+
   const { data, error } = await supabase
     .from('users')
-    .select('id, email, display_name, role, authority_codes, scope_level, scope_values, is_suspended')
+    .select(USER_BASE_COLUMNS)
     .order('email')
   if (error) throw error
-  return (data ?? []) as ManagedUser[]
+  return { users: (data ?? []) as ManagedUser[], hasProfileFields: false }
 }
 
 /**
@@ -255,7 +287,18 @@ export async function setUserSuspended(id: string, suspended: boolean) {
 
 export async function updateUserPermissions(
   id: string,
-  patch: Partial<Pick<ManagedUser, 'role' | 'authority_codes' | 'scope_level' | 'scope_values'>>,
+  patch: Partial<
+    Pick<
+      ManagedUser,
+      | 'role'
+      | 'authority_codes'
+      | 'scope_level'
+      | 'scope_values'
+      | 'job_title'
+      | 'institution_name'
+      | 'institution_code'
+    >
+  >,
 ) {
   const { error } = await supabase.from('users').update(patch).eq('id', id)
   if (error) throw error

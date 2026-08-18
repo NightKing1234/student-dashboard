@@ -14,6 +14,9 @@ Vault תיעוד (Obsidian) לפרויקט ממשק ניהול נתוני תלמ
 | [setup-and-run.md](setup-and-run.md) | מדריך הקמה והרצה מאפס |
 | [server-migration.md](server-migration.md) | מה רץ איפה, העברה לשרת, ופריסת Edge Functions |
 | [../agent/README.md](../agent/README.md) | סוכן העיבוד — התקנה והפעלה |
+| [tier-b-template.md](tier-b-template.md) | תבנית קובץ הקליטה לדרג ב' (גנים, לידה עד 3, קידום נוער, חינוך ביתי) |
+| [extra-fields-design.md](extra-fields-design.md) | אפיון הנתונים התוספתיים הניתנים לעריכה |
+| [dedup-review.md](dedup-review.md) | השוואת שני מנועי הדדופ, לקראת מעבר עם סבא |
 | [dev-log.md](dev-log.md) | יומן פיתוח כרונולוגי |
 | [decisions/](decisions/) | החלטות טכניות |
 | [meetings/](meetings/) | סיכומי פגישות |
@@ -28,10 +31,10 @@ Vault תיעוד (Obsidian) לפרויקט ממשק ניהול נתוני תלמ
 **שלב א' מומש, והמערכת חיה בענן.**
 
 - 🌐 האתר: https://astounding-pudding-d07e8f.netlify.app
-- 🗄 Supabase: 3 רשויות · 9 מיגרציות · Edge Function לניהול משתמשים
+- 🗄 Supabase: 3 רשויות · 10 מיגרציות · Edge Function לניהול משתמשים
 - 🤖 סוכן עיבוד אוטומטי — העלאה באתר מפעילה עדכון בלי מגע יד
 - 📁 סריקת תיקייה מקומית — קבצים שמגיעים למחשב מעובדים מעצמם
 - 🔄 עדכון ידני (גיבוי בלבד): `python scripts/update_from_moe.py --code 1400000`
 
 ראה [dev-log.md](dev-log.md) לפרטים, ו-[decisions/](decisions/) להחלטות —
-האחרונה היא [005](decisions/005-watch-folder-baseline.md).
+האחרונה היא [007](decisions/007-client-side-features.md).

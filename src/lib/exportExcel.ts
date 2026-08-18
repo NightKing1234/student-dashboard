@@ -1,9 +1,18 @@
 // ייצוא לאקסל — אפיון §6.5. "הדרך היחידה להפיק דוחות בשלב א'".
 // מייצא את *כל* השדות שנבחרו (מכל הדפים), משקף את הסינון והמיון הנוכחיים.
-import * as XLSX from 'xlsx'
-import { fieldLabel } from '@/config/fields'
+//
+// העיצוב לפי הערה 14 של סבא: שורת כותרת מוקפאת, מודגשת, צבועה וממורכזת,
+// גלישת טקסט, גבולות לכל התאים, ורוחב עמודות אוטומטי. ראה lib/xlsx.ts.
+
+import { fieldLabel, getField } from '@/config/fields'
+import { downloadWorkbook, type CellValue } from './xlsx'
 
 type Row = Record<string, unknown>
+
+interface ExportOptions {
+  /** שם הגיליון בתוך הקובץ (ברירת מחדל: "תלמידים") */
+  sheetName?: string
+}
 
 /**
  * מייצא שורות לקובץ אקסל.
@@ -11,24 +20,40 @@ type Row = Record<string, unknown>
  * @param fields מפתחות השדות שנבחרו, לפי הסדר (כולל שדות מכל הדפים)
  * @param fileName שם הקובץ (בלי סיומת)
  */
-export function exportToExcel(rows: Row[], fields: string[], fileName: string): void {
-  // בונים מערך אובייקטים עם כותרות בעברית לפי סדר השדות שנבחר
-  const data = rows.map((row) => {
-    const out: Record<string, unknown> = {}
-    for (const key of fields) {
-      out[fieldLabel(key)] = row[key] ?? ''
-    }
-    return out
+export async function exportToExcel(
+  rows: Row[],
+  fields: string[],
+  fileName: string,
+  options: ExportOptions = {},
+): Promise<void> {
+  const headers = fields.map((key) => fieldLabel(key))
+
+  // רק שדות שהוגדרו כמספריים נכתבים כמספר. תעודות זהות וסמלי מוסד הם
+  // טקסט בהגדרה — אחרת אקסל מוחק אפסים מובילים ומציג כתיב מדעי.
+  const numericColumns = new Set<number>()
+  fields.forEach((key, i) => {
+    if (getField(key)?.type === 'number') numericColumns.add(i)
   })
 
-  const headers = fields.map((k) => fieldLabel(k))
-  const worksheet = XLSX.utils.json_to_sheet(data, { header: headers })
-  const workbook = XLSX.utils.book_new()
+  const data: CellValue[][] = rows.map((row) =>
+    fields.map((key, i) => {
+      const value = row[key]
+      if (value === null || value === undefined) return ''
+      if (numericColumns.has(i)) {
+        const num = Number(value)
+        return Number.isFinite(num) ? num : String(value)
+      }
+      return String(value)
+    }),
+  )
 
-  // RTL בגיליון
-  worksheet['!cols'] = headers.map(() => ({ wch: 18 }))
-  workbook.Workbook = { Views: [{ RTL: true }] }
-
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'תלמידים')
-  XLSX.writeFile(workbook, `${fileName}.xlsx`)
+  await downloadWorkbook(
+    {
+      sheetName: options.sheetName ?? 'תלמידים',
+      headers,
+      rows: data,
+      numericColumns,
+    },
+    fileName,
+  )
 }

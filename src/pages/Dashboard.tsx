@@ -1,8 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
-import { fetchAllStudents, type StudentRow } from '@/lib/students'
+import {
+  fetchAllStudents,
+  clearStudentsCache,
+  type StudentRow,
+} from '@/lib/students'
+import { withComputedFields } from '@/lib/computed'
 import { applyFilters, isConditionReady, type FilterCondition } from '@/lib/filters'
+import { columnValues } from '@/lib/columnValues'
 import { sortRows, paginateFields, type SortState } from '@/lib/table'
 import { exportToExcel } from '@/lib/exportExcel'
 import {
@@ -10,30 +16,51 @@ import {
   DEFAULT_PRESET,
   ACTIVE_STATUS_FIELD,
   ACTIVE_STATUS_VALUE,
+  type Preset,
 } from '@/config/presets'
-import { PARENT_ID_FIELDS } from '@/config/fields'
-import { fetchAuthorities, type Authority } from '@/lib/admin'
+import { PARENT_ID_FIELDS, fieldLabel } from '@/config/fields'
+import { fetchAuthorities, ROLE_LABELS, type Authority } from '@/lib/admin'
 import FilterBar from '@/components/FilterBar'
 import FieldPicker from '@/components/FieldPicker'
 import StudentTable from '@/components/StudentTable'
 import StudentCard from '@/components/StudentCard'
+import ColumnFilterMenu from '@/components/ColumnFilterMenu'
+import CellActionMenu from '@/components/CellActionMenu'
+import Logo from '@/components/brand/Logo'
+
+/** קו מפריד בין פריטי הסרגל העליון */
+function Sep() {
+  return (
+    <span className="select-none text-slate-300" aria-hidden>
+      |
+    </span>
+  )
+}
 
 const COL_MIN_WIDTH = 96 // רוחב עמודה משוער לחישוב כמות עמודות לדף
 
+function newId() {
+  return Math.random().toString(36).slice(2, 9)
+}
+
 /**
- * סינון ברירת המחדל — רק תלמידים "משובץ".
- * הטבלה ב-DB מכילה גם תלמידים שעזבו/מועמדים, אבל הם מוסתרים כברירת מחדל.
- * הסינון מוצג בסרגל הסינון וניתן להסרה בלחיצה — "הכל ואז מצמצמים" נשמר.
+ * הסינון שנפתח עם התצורה: מצב רישום "משובץ" לכולן, ועוד סינון ייעודי
+ * לתצורות שרלוונטיות רק לחלק מהאוכלוסייה (חינוך מיוחד, מגמות).
+ *
+ * הכל מוצג בסרגל הסינון וניתן להסרה בלחיצה — "הכל ואז מצמצמים" נשמר.
  */
-function defaultFilters(): FilterCondition[] {
-  return [
-    {
-      id: 'default-active-status',
-      field: ACTIVE_STATUS_FIELD,
-      operator: 'equals',
-      value: ACTIVE_STATUS_VALUE,
-    },
-  ]
+function presetFilters(preset: Preset): FilterCondition[] {
+  const base: FilterCondition = {
+    id: 'default-active-status',
+    field: ACTIVE_STATUS_FIELD,
+    operator: 'equals',
+    value: ACTIVE_STATUS_VALUE,
+  }
+  const extra = (preset.defaultFilters ?? []).map((f, i) => ({
+    id: `preset-${preset.id}-${i}`,
+    ...f,
+  }))
+  return [base, ...extra]
 }
 
 export default function Dashboard() {
@@ -44,52 +71,84 @@ export default function Dashboard() {
 
   // הרשויות הזמינות: מנהל־על רואה את כולן, משתמש רגיל רק את שלו
   const [allAuthorities, setAllAuthorities] = useState<Authority[]>([])
-  const authorities = isSuperAdmin
-    ? allAuthorities.map((a) => a.code)
-    : (profile?.authority_codes ?? [])
+  const authorities = useMemo(
+    () =>
+      isSuperAdmin
+        ? allAuthorities.map((a) => a.code)
+        : (profile?.authority_codes ?? []),
+    [isSuperAdmin, allAuthorities, profile?.authority_codes],
+  )
 
   const [authorityCode, setAuthorityCode] = useState<string>(codeFromUrl ?? '')
 
+  // נטען לכל משתמש (ולא רק למנהל־על): שם הרשות לתצוגה, וקוד משרד החינוך
+  // שנדרש לחישוב "סטטוס תלמיד ברשות".
   useEffect(() => {
-    if (!isSuperAdmin) return
     fetchAuthorities().then(setAllAuthorities).catch(() => setAllAuthorities([]))
-  }, [isSuperAdmin])
+  }, [])
 
   // הפרופיל נטען אסינכרונית — נקבע את הרשות ברגע שהוא מגיע
   useEffect(() => {
     if (!authorityCode && authorities.length > 0) setAuthorityCode(authorities[0])
   }, [authorities, authorityCode])
 
-  // שם הרשות לתצוגה — נעים יותר מקוד בן 7 ספרות
-  const authorityName =
-    allAuthorities.find((a) => a.code === authorityCode)?.name ?? ''
+  const authority = allAuthorities.find((a) => a.code === authorityCode)
+  const authorityName = authority?.name ?? ''
+  /** קוד הרשות במשרד החינוך — לא בהכרח הקוד שלנו (כפר = 120 / 5108) */
+  const moeCode = authority?.moe_code ?? authorityCode
 
-  const [allStudents, setAllStudents] = useState<StudentRow[]>([])
+  const [rawStudents, setRawStudents] = useState<StudentRow[]>([])
   const [loading, setLoading] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const [activePreset, setActivePreset] = useState(DEFAULT_PRESET.id)
   const [selectedFields, setSelectedFields] = useState<string[]>(DEFAULT_PRESET.defaultFields)
-  const [filters, setFilters] = useState<FilterCondition[]>(defaultFilters)
+  const [filters, setFilters] = useState<FilterCondition[]>(() => presetFilters(DEFAULT_PRESET))
   const [sort, setSort] = useState<SortState | null>(null)
   const [fieldPage, setFieldPage] = useState(0)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [cardIndex, setCardIndex] = useState<number | null>(null)
   const [siblingParentId, setSiblingParentId] = useState<string | null>(null)
+  const [columnMenu, setColumnMenu] = useState<{ field: string; anchor: DOMRect } | null>(null)
+  const [cellMenu, setCellMenu] = useState<
+    { index: number; field: string; anchor: DOMRect } | null
+  >(null)
 
   const tableWrapRef = useRef<HTMLDivElement>(null)
   const [perPage, setPerPage] = useState(8)
 
-  // טעינת כל תלמידי הרשות (אפיון: "הכל ואז מצמצמים")
+  // טעינת כל תלמידי הרשות (אפיון: "הכל ואז מצמצמים").
+  // הטעינה עוברת דרך מטמון — חזרה למסך אינה טוענת הכל מחדש.
   useEffect(() => {
     if (!authorityCode) return
     setLoading(true)
     setError(null)
     fetchAllStudents(authorityCode)
-      .then(setAllStudents)
+      .then(setRawStudents)
       .catch((e) => setError(e.message ?? 'שגיאה בטעינת הנתונים'))
       .finally(() => setLoading(false))
   }, [authorityCode])
+
+  async function refresh() {
+    if (!authorityCode) return
+    setRefreshing(true)
+    setError(null)
+    clearStudentsCache(authorityCode)
+    try {
+      setRawStudents(await fetchAllStudents(authorityCode, { force: true }))
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
+  // השדות המחושבים נגזרים בתצוגה ולא ב-pipeline — ראה lib/computed.ts
+  const allStudents = useMemo(
+    () => withComputedFields(rawStudents, moeCode),
+    [rawStudents, moeCode],
+  )
 
   // חישוב כמות עמודות לדף לפי רוחב המסך (דפדוף שדות, אפיון §6.2)
   useEffect(() => {
@@ -105,16 +164,51 @@ export default function Dashboard() {
 
   // סינון + מיון — קובע גם את הייצוא וגם את ניווט הכרטיס
   const activeFilters = useMemo(() => filters.filter(isConditionReady), [filters])
-  const results = useMemo(() => {
-    let rows = allStudents
-    // זיהוי אחים — התאמת OR על שני שדות ההורה
-    if (siblingParentId) {
-      rows = rows.filter((r) =>
-        PARENT_ID_FIELDS.some((f) => String(r[f] ?? '') === siblingParentId),
-      )
-    }
-    return sortRows(applyFilters(rows, activeFilters), sort)
-  }, [allStudents, activeFilters, sort, siblingParentId])
+
+  /** השורות אחרי סינון האחים בלבד — הבסיס לחישוב ערכי העמודות */
+  const scopedRows = useMemo(() => {
+    if (!siblingParentId) return allStudents
+    return allStudents.filter((r) =>
+      PARENT_ID_FIELDS.some((f) => String(r[f] ?? '') === siblingParentId),
+    )
+  }, [allStudents, siblingParentId])
+
+  const results = useMemo(
+    () => sortRows(applyFilters(scopedRows, activeFilters), sort),
+    [scopedRows, activeFilters, sort],
+  )
+
+  /**
+   * הערכים שיוצגו בתפריט הסינון של עמודה.
+   *
+   * מחושבים אחרי שאר הסינונים ולפני הסינון של העמודה עצמה — כך שהרשימה
+   * מצטמצמת יחד עם שאר התנאים (כמו באקסל), אבל ביטול סימון בעמודה עצמה
+   * אינו מעלים את שאר הערכים שלה.
+   */
+  function valuesForField(field: string) {
+    const others = activeFilters.filter((c) => c.field !== field)
+    return columnValues(applyFilters(scopedRows, others), field)
+  }
+
+  const menuValues = useMemo(
+    () => (columnMenu ? valuesForField(columnMenu.field) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [columnMenu?.field, scopedRows, activeFilters],
+  )
+
+  function columnSelection(field: string): string[] | null {
+    const cond = filters.find((c) => c.field === field && c.operator === 'one_of')
+    return cond?.values ?? null
+  }
+
+  /** null = ביטול הסינון על העמודה */
+  function setColumnSelection(field: string, values: string[] | null) {
+    setFilters((prev) => {
+      const rest = prev.filter((c) => !(c.field === field && c.operator === 'one_of'))
+      if (values === null) return rest
+      return [...rest, { id: newId(), field, operator: 'one_of', values }]
+    })
+  }
 
   // דפדוף שדות אופקי
   const fieldPages = useMemo(
@@ -127,6 +221,16 @@ export default function Dashboard() {
   function changePreset(id: string) {
     const preset = PRESETS.find((p) => p.id === id) ?? DEFAULT_PRESET
     setActivePreset(id)
+    setSelectedFields(preset.defaultFields)
+    setFilters(presetFilters(preset))
+    setSort(null)
+    setFieldPage(0)
+    setSiblingParentId(null)
+  }
+
+  /** חזרה לתמהיל השדות של התצורה, בלי לגעת בסינון */
+  function resetFields() {
+    const preset = PRESETS.find((p) => p.id === activePreset) ?? DEFAULT_PRESET
     setSelectedFields(preset.defaultFields)
     setFieldPage(0)
   }
@@ -145,25 +249,47 @@ export default function Dashboard() {
     )
   }
 
-  function handleExport() {
+  const [exporting, setExporting] = useState(false)
+
+  async function handleExport() {
     const preset = PRESETS.find((p) => p.id === activePreset)
     const stamp = new Date().toISOString().slice(0, 10)
-    exportToExcel(results, selectedFields, `תלמידים_${preset?.name ?? ''}_${stamp}`)
+    setExporting(true)
+    try {
+      await exportToExcel(
+        results,
+        selectedFields,
+        `${authorityName || authorityCode}_${preset?.name ?? 'תלמידים'}_${stamp}`,
+        { sheetName: preset?.name ?? 'תלמידים' },
+      )
+    } catch (e) {
+      setError(`הייצוא נכשל: ${(e as Error).message}`)
+    } finally {
+      setExporting(false)
+    }
   }
 
   // זיהוי אחים — סינון על ת.ז. ההורה (אפיון §5, תצורה 2).
-  // מציג את כל התלמידים שאחד מהוריהם הוא ת.ז. זו (התאמה על גורם קשר 1 או 2).
   function findSiblings(parentId: string) {
     setCardIndex(null)
     setSiblingParentId(parentId)
     setFilters([])
   }
 
+  const roleLabel = profile?.role ? ROLE_LABELS[profile.role] : ''
+  /** תפקיד, מוסד וסוג הרשאה — כל אחד פריט נפרד בסרגל העליון */
+  const identityParts = [
+    profile?.job_title,
+    profile?.institution_name,
+    roleLabel,
+  ].filter(Boolean) as string[]
+
   return (
     <div className="flex h-full flex-col">
       {/* פס עליון */}
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-2.5 shadow-sm">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <Logo className="h-8 w-8 shrink-0" />
           <h1 className="text-lg font-bold text-sky-800">ניהול נתוני תלמידים</h1>
           {authorities.length > 1 ? (
             <select
@@ -181,22 +307,46 @@ export default function Dashboard() {
               })}
             </select>
           ) : (
-            <span className="text-sm text-slate-500">
+            <span className="rounded-lg bg-sky-50 px-2 py-1 text-sm font-medium text-sky-800">
               {authorityName ? `${authorityName} (${authorityCode})` : `רשות ${authorityCode || '—'}`}
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2 text-sm">
+
+        {/*
+          זהות המשתמש — שם, תפקיד, מוסד וסוג הרשאה (הערות 1 ו-4).
+          הכל בשורה אחת, מופרד בקווים אנכיים.
+        */}
+        <div className="flex flex-wrap items-center gap-2 text-sm">
           {isSuperAdmin && (
-            <Link
-              to="/admin"
-              className="rounded-lg px-2 py-1 text-slate-500 transition hover:bg-sky-50 hover:text-sky-700"
-            >
-              → ניהול לקוחות
-            </Link>
+            <>
+              <Link
+                to={authorityCode ? `/admin/client/${authorityCode}` : '/admin'}
+                className="rounded-lg px-2 py-1 text-slate-500 transition hover:bg-sky-50 hover:text-sky-700"
+                title="חזרה לכרטיס המועצה, בלי לצאת מהמערכת"
+              >
+                חזרה לניהול
+              </Link>
+              <Sep />
+            </>
           )}
-          <span className="text-slate-500">{profile?.display_name ?? profile?.email}</span>
-          <button onClick={signOut} className="rounded-lg px-2 py-1 text-slate-500 transition hover:bg-red-50 hover:text-red-600">
+
+          <span className="font-medium text-slate-700">
+            {profile?.display_name ?? profile?.email}
+          </span>
+
+          {identityParts.map((part, i) => (
+            <Fragment key={i}>
+              <Sep />
+              <span className="text-slate-400">{part}</span>
+            </Fragment>
+          ))}
+
+          <Sep />
+          <button
+            onClick={signOut}
+            className="rounded-lg px-2 py-1 text-slate-500 transition hover:bg-red-50 hover:text-red-600"
+          >
             יציאה
           </button>
         </div>
@@ -223,7 +373,7 @@ export default function Dashboard() {
 
       {/* סרגל כלים */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-2.5 shadow-sm">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => setPickerOpen(true)}
             className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:border-sky-400 hover:bg-sky-50 hover:text-sky-700"
@@ -232,16 +382,46 @@ export default function Dashboard() {
           </button>
           <button
             onClick={handleExport}
-            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700 hover:shadow"
+            disabled={exporting}
+            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700 hover:shadow disabled:opacity-60"
           >
-            ⬇ ייצוא לאקסל
+            {exporting ? '⬇ מייצא…' : '⬇ ייצוא לאקסל'}
+          </button>
+          {/* הסינון הנוכחי נוסע עם הניווט — סבא: "אחרי שהגדרת טבלה
+              שסיננת וצמצמת, ייצוא לדף הפיבוט" */}
+          <Link
+            to={`/pivot/${authorityCode}`}
+            state={{ filters: activeFilters }}
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:border-sky-400 hover:bg-sky-50 hover:text-sky-700"
+            title="דוחות סיכום על הסינון הנוכחי — כמה תלמידים בכל מוסד, שכבה ויישוב"
+          >
+            ▦ פיבוטים
+          </Link>
+          {/* מנהל רשות יכול לעדכן את הנתונים בעצמו, מתי שהוא רוצה */}
+          {(isSuperAdmin || profile?.role === 'admin') && authorityCode && (
+            <Link
+              to={`/upload/${authorityCode}`}
+              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:border-sky-400 hover:bg-sky-50 hover:text-sky-700"
+              title="העלאת ששת קבצי המצב״ת ועדכון הנתונים"
+            >
+              ⬆ עדכון מצב״ת
+            </Link>
+          )}
+          <button
+            onClick={refresh}
+            disabled={refreshing || loading}
+            title="טעינה מחדש מהמסד — אחרי עדכון מצב״ת"
+            className="rounded-lg px-2 py-1.5 text-sm text-slate-500 transition hover:bg-sky-50 hover:text-sky-700 disabled:opacity-40"
+          >
+            {refreshing ? '⟳ מרענן…' : '⟳ רענון'}
           </button>
         </div>
 
         <div className="flex items-center gap-3 text-sm text-slate-600">
           <span>
             <strong className="text-sky-700">{results.length.toLocaleString('he-IL')}</strong> תלמידים
-            {activeFilters.length > 0 && ` (מתוך ${allStudents.length.toLocaleString('he-IL')})`}
+            {(activeFilters.length > 0 || siblingParentId) &&
+              ` (מתוך ${allStudents.length.toLocaleString('he-IL')})`}
           </span>
 
           {/* דפדוף שדות */}
@@ -283,7 +463,7 @@ export default function Dashboard() {
       )}
 
       {/* סינון */}
-      <FilterBar conditions={filters} onChange={setFilters} />
+      <FilterBar conditions={filters} onChange={setFilters} valuesFor={valuesForField} />
 
       {/* הטבלה */}
       <div ref={tableWrapRef} className="min-h-0 flex-1 bg-white">
@@ -298,14 +478,50 @@ export default function Dashboard() {
             sort={sort}
             onSort={handleSort}
             onRowClick={setCardIndex}
+            onCellClick={(index, field, anchor) => setCellMenu({ index, field, anchor })}
           />
         )}
       </div>
+
+      {cellMenu && results[cellMenu.index] && (
+        <CellActionMenu
+          studentName={`${results[cellMenu.index]['SHEM_PRATI'] ?? ''} ${
+            results[cellMenu.index]['SHEM_MISHPACHA'] ?? ''
+          }`.trim()}
+          columnLabel={fieldLabel(cellMenu.field)}
+          cellValue={String(results[cellMenu.index][cellMenu.field] ?? '')}
+          anchor={cellMenu.anchor}
+          onOpenCard={() => {
+            setCardIndex(cellMenu.index)
+            setCellMenu(null)
+          }}
+          onOpenFilter={() => {
+            // תפריט הסינון נפתח באותה נקודה שבה נלחץ התא
+            setColumnMenu({ field: cellMenu.field, anchor: cellMenu.anchor })
+            setCellMenu(null)
+          }}
+          onClose={() => setCellMenu(null)}
+        />
+      )}
+
+      {columnMenu && (
+        <ColumnFilterMenu
+          title={fieldLabel(columnMenu.field)}
+          values={menuValues}
+          selected={columnSelection(columnMenu.field)}
+          onChange={(values) => setColumnSelection(columnMenu.field, values)}
+          onSort={(direction) => setSort({ field: columnMenu.field, direction })}
+          anchor={columnMenu.anchor}
+          onClose={() => setColumnMenu(null)}
+        />
+      )}
 
       {pickerOpen && (
         <FieldPicker
           selected={selectedFields}
           onToggle={toggleField}
+          onSetSelected={setSelectedFields}
+          onReset={resetFields}
           onClose={() => setPickerOpen(false)}
         />
       )}

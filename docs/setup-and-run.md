@@ -64,6 +64,14 @@ npm run dev
   (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`) בהגדרות ה-Site.
 - קובץ `netlify.toml` עם redirect ל-SPA (`/* → /index.html`) יידרש לניתוב.
 
+## תקלות נפוצות באתר
+
+| התסמין | מה זה |
+|--------|-------|
+| `Unexpected token '<' ... is not valid JSON` בהעלאת מצב"ת | בקשה קיבלה HTML במקום JSON. אם ה-HTML **בלי** `<!doctype>` — פרוקסי או תוספת דפדפן חסמו אותה, לא האתר. תוספות VPN (Browsec, Windscribe) עושות זאת על העלאות גדולות. לכבות ב-`chrome://extensions` או לעבוד בחלון סתר. [decisions/006](decisions/006-upload-failures-and-vpn.md) |
+| הכניסה נכשלת עם "פרטים שגויים" למרות סיסמה נכונה | מפתח סביבה קטוע ב-Netlify. `lib/diagnostics.ts` מציג את אורך המפתח במסך הכניסה |
+| ההעלאה נרשמה אבל הסטטוס תקוע ב"ממתין" | הסוכן אינו רץ. לבדוק `agent.log` במחשב שבו הוא מותקן |
+
 ## מצב נוכחי (2026-08-03)
 - Supabase: פרויקט `agcoeqshvkyopjjdvril`, טבלה `students_1400000` עם **8,244** תלמידים
   (7,919 "משובץ" + 325 בסטטוסים אחרים), **165 עמודות**.

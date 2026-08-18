@@ -30,6 +30,9 @@ const COMPUTED_FIELDS: FieldDef[] = [
   { key: 'KITA_MESHULEVET', label: 'כיתה (משולב)', type: 'text', group: 'כיתה ומגמה', computed: true },
   { key: 'STATUS_CHINUCH_MEYUCHAD', label: 'סטטוס חינוך מיוחד', type: 'text', group: 'שיבוץ וסטטוס', computed: true },
   { key: 'STATUS_TALMID_BARASHUT', label: 'סטטוס תלמיד ברשות', type: 'text', group: 'שיבוץ וסטטוס', computed: true },
+  // הקוד המספרי של המסלול. מודול 7 מחליף אותו בתיאור, והוא משוחזר
+  // בתצוגה מהמיפוי ההפוך — ראה lib/computed.ts.
+  { key: 'SEMEL_MASLUL', label: 'סמל מסלול', type: 'text', group: 'כיתה ומגמה', computed: true },
 ]
 
 // שדות מקור ממשרד החינוך (מיוצר מהמילון).

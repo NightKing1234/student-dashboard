@@ -4,25 +4,42 @@ import { ALL_FIELDS, FIELD_ORDER, type FieldGroup } from '@/config/fields'
 interface Props {
   selected: string[]
   onToggle: (key: string) => void
+  /** קביעת כל הבחירה בבת אחת — "בחר הכל" / "בטל הכל" */
+  onSetSelected: (keys: string[]) => void
+  /** חזרה לתמהיל ברירת המחדל של התצורה הנוכחית */
+  onReset: () => void
   onClose: () => void
 }
 
-/** בורר שדות — הוספה/הסרה של שדות מתוך כל ~130 השדות (אפיון §6.1). */
-export default function FieldPicker({ selected, onToggle, onClose }: Props) {
+/** בורר שדות — הוספה/הסרה של שדות מתוך כל ~160 השדות (אפיון §6.1). */
+export default function FieldPicker({
+  selected,
+  onToggle,
+  onSetSelected,
+  onReset,
+  onClose,
+}: Props) {
   const [query, setQuery] = useState('')
   const selectedSet = useMemo(() => new Set(selected), [selected])
 
+  /** השדות שעוברים את החיפוש — לפי התווית בעברית או שם העמודה באנגלית */
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return ALL_FIELDS
+    return ALL_FIELDS.filter(
+      (f) => f.label.toLowerCase().includes(q) || f.key.toLowerCase().includes(q),
+    )
+  }, [query])
+
   const grouped = useMemo(() => {
-    const q = query.trim()
     const map = new Map<FieldGroup, typeof ALL_FIELDS>()
-    for (const f of ALL_FIELDS) {
-      if (q && !f.label.includes(q)) continue
+    for (const f of visible) {
       const arr = map.get(f.group) ?? []
       arr.push(f)
       map.set(f.group, arr)
     }
     return map
-  }, [query])
+  }, [visible])
 
   return (
     <div className="fixed inset-0 z-40 flex justify-start bg-black/30" onClick={onClose}>
@@ -42,8 +59,45 @@ export default function FieldPicker({ selected, onToggle, onClose }: Props) {
           placeholder="חיפוש שדה…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="mb-3 w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none"
+          className="mb-2 w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none"
         />
+
+        {/*
+          בחירה גורפת (הערה 8): "בחר הכל" נועד לייצא אקסל של כל מסד הנתונים,
+          "בטל הכל" נועד לבנות תמהיל מאפס — במקום לנעוץ 160 צ'קבוקסים ידנית.
+          כשיש חיפוש פעיל הפעולה חלה על התוצאות המוצגות בלבד.
+        */}
+        <div className="mb-3 flex flex-wrap items-center gap-1.5 text-xs">
+          <button
+            onClick={() => {
+              const keys = visible.map((f) => f.key)
+              onSetSelected(
+                query.trim() ? [...new Set([...selected, ...keys])] : keys,
+              )
+            }}
+            className="rounded-md bg-sky-50 px-2 py-1 font-medium text-sky-700 transition hover:bg-sky-100"
+          >
+            בחר הכל{query.trim() ? ` (${visible.length})` : ''}
+          </button>
+          <button
+            onClick={() => {
+              if (!query.trim()) return onSetSelected([])
+              const drop = new Set(visible.map((f) => f.key))
+              onSetSelected(selected.filter((k) => !drop.has(k)))
+            }}
+            className="rounded-md bg-slate-100 px-2 py-1 text-slate-600 transition hover:bg-slate-200"
+          >
+            בטל הכל
+          </button>
+          <button
+            onClick={onReset}
+            title="חזרה לשדות ברירת המחדל של התצורה"
+            className="rounded-md bg-slate-100 px-2 py-1 text-slate-600 transition hover:bg-slate-200"
+          >
+            ↺ ברירת מחדל
+          </button>
+          <span className="mr-auto text-slate-400">{selected.length} נבחרו</span>
+        </div>
 
         {FIELD_ORDER.map((group) => {
           const fields = grouped.get(group)

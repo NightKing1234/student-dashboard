@@ -1,5 +1,8 @@
-import { ALL_FIELDS, getField } from '@/config/fields'
+import { useState } from 'react'
+import { ALL_FIELDS, fieldLabel, getField } from '@/config/fields'
 import FieldCombobox from './FieldCombobox'
+import ColumnFilterMenu from './ColumnFilterMenu'
+import type { ColumnValue } from '@/lib/columnValues'
 import {
   operatorsForType,
   type FilterCondition,
@@ -9,6 +12,8 @@ import {
 interface Props {
   conditions: FilterCondition[]
   onChange: (conditions: FilterCondition[]) => void
+  /** הערכים הזמינים לשדה — לבחירה מרובה בצ'קבוקסים */
+  valuesFor: (field: string) => ColumnValue[]
 }
 
 function newId() {
@@ -21,7 +26,10 @@ function isValueless(op: FilterOperator) {
 }
 
 /** סרגל סינון — אפיון §6.3. שילוב מספר סינונים ב-AND. */
-export default function FilterBar({ conditions, onChange }: Props) {
+export default function FilterBar({ conditions, onChange, valuesFor }: Props) {
+  // איזה תנאי "אחד מתוך" פתוח כרגע לבחירה, ומאיפה נפתח התפריט
+  const [picking, setPicking] = useState<{ id: string; anchor: DOMRect } | null>(null)
+
   function update(id: string, patch: Partial<FilterCondition>) {
     onChange(conditions.map((c) => (c.id === id ? { ...c, ...patch } : c)))
   }
@@ -99,21 +107,22 @@ export default function FilterBar({ conditions, onChange }: Props) {
               </>
             )}
 
+            {/* בחירה מרובה — צ'קבוקסים במקום הקלדת ערכים מופרדים בפסיק.
+                עם 269 יישובים ברשות אחת, הקלדה אינה אפשרות מעשית. */}
             {op === 'one_of' && (
-              <input
-                type="text"
-                value={(c.values ?? []).join(', ')}
-                onChange={(e) =>
-                  update(c.id, {
-                    values: e.target.value
-                      .split(',')
-                      .map((s) => s.trim())
-                      .filter(Boolean),
-                  })
+              <button
+                onClick={(e) =>
+                  setPicking({ id: c.id, anchor: e.currentTarget.getBoundingClientRect() })
                 }
-                placeholder="ערכים מופרדים בפסיק"
-                className="w-40 rounded-md border border-slate-200 px-2 py-0.5 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-300"
-              />
+                className="min-w-[9rem] max-w-[16rem] truncate rounded-md border border-slate-200 px-2 py-0.5 text-right transition hover:border-sky-400 hover:bg-sky-50"
+                title="בחירת ערכים מרשימה"
+              >
+                {(c.values?.length ?? 0) === 0
+                  ? 'בחר ערכים…'
+                  : c.values!.length <= 2
+                    ? c.values!.map((v) => v || '(ריק)').join(', ')
+                    : `${c.values!.length} ערכים נבחרו`}
+              </button>
             )}
 
             <button
@@ -142,6 +151,23 @@ export default function FilterBar({ conditions, onChange }: Props) {
           נקה הכל
         </button>
       )}
+
+      {picking &&
+        (() => {
+          const cond = conditions.find((c) => c.id === picking.id)
+          if (!cond) return null
+          return (
+            <ColumnFilterMenu
+              title={fieldLabel(cond.field)}
+              values={valuesFor(cond.field)}
+              // ריק = טרם נבחר דבר; בחירת הכל שקולה לביטול הסינון
+              selected={cond.values ?? []}
+              onChange={(next) => update(cond.id, { values: next ?? [] })}
+              anchor={picking.anchor}
+              onClose={() => setPicking(null)}
+            />
+          )
+        })()}
     </div>
   )
 }

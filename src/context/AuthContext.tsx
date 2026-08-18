@@ -3,6 +3,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
@@ -16,7 +17,21 @@ export interface UserProfile {
   role: 'viewer' | 'admin' | 'super_admin'
   /** קודי הרשויות שהמשתמש משויך אליהן (אפיון: "רשות = עולם") */
   authority_codes: string[]
+  /** תפקיד בעברית — "מזכירת בית ספר", "מנהל אגף החינוך" (הערה 1) */
+  job_title?: string | null
+  /** שם המוסד, למשתמש שהוא בית-ספרי ולא רשותי (הערה 1) */
+  institution_name?: string | null
+  /** סמל המוסד — סבא ביקש "הכי טוב שניהם" */
+  institution_code?: string | null
 }
+
+const BASE_COLUMNS = 'id, email, display_name, role, authority_codes'
+/**
+ * שדות התפקיד והמוסד תלויים במיגרציה שטרם הורצה על המסד.
+ * הבקשה מנסה אותם קודם, ואם העמודות אינן קיימות היא נופלת בחזרה לבסיסיות —
+ * כך האתר עובד לפני ההרצה, ומציג את השדות מיד אחריה בלי פריסה מחדש.
+ */
+const EXTENDED_COLUMNS = `${BASE_COLUMNS}, job_title, institution_name, institution_code`
 
 interface AuthContextValue {
   session: Session | null
@@ -29,9 +44,17 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
 async function loadProfile(userId: string): Promise<UserProfile | null> {
+  const extended = await supabase
+    .from('users')
+    .select(EXTENDED_COLUMNS)
+    .eq('id', userId)
+    .single()
+
+  if (!extended.error) return extended.data as unknown as UserProfile
+
   const { data, error } = await supabase
     .from('users')
-    .select('id, email, display_name, role, authority_codes')
+    .select(BASE_COLUMNS)
     .eq('id', userId)
     .single()
 
@@ -39,7 +62,7 @@ async function loadProfile(userId: string): Promise<UserProfile | null> {
     console.error('שגיאה בטעינת פרופיל המשתמש:', error.message)
     return null
   }
-  return data as UserProfile
+  return data as unknown as UserProfile
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -47,19 +70,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
 
+  /**
+   * המשתמש שהפרופיל שלו כבר נטען.
+   *
+   * Supabase משדר `onAuthStateChange` גם ברענון טוקן (בערך כל שעה). בלי
+   * הבדיקה הזו כל רענון היה טוען את הפרופיל מחדש ומדליק את מסך "טוען…"
+   * באמצע העבודה.
+   */
+  const loadedFor = useRef<string | null>(null)
+
   useEffect(() => {
     let active = true
 
     supabase.auth.getSession().then(async ({ data }) => {
       if (!active) return
       setSession(data.session)
-      if (data.session) setProfile(await loadProfile(data.session.user.id))
+      if (data.session) {
+        loadedFor.current = data.session.user.id
+        setProfile(await loadProfile(data.session.user.id))
+      }
       setLoading(false)
     })
 
     const { data: sub } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
       setSession(newSession)
-      setProfile(newSession ? await loadProfile(newSession.user.id) : null)
+
+      const userId = newSession?.user.id ?? null
+      if (!userId) {
+        loadedFor.current = null
+        setProfile(null)
+        return
+      }
+      if (loadedFor.current === userId) return // רענון טוקן — הפרופיל כבר בידינו
+
+      // הניתוב אחרי הכניסה תלוי בתפקיד, ולכן ממתינים לפרופיל לפני
+      // שמציגים מסך — אחרת מנהל־על היה נוחת לרגע במסך של משתמש רגיל.
+      loadedFor.current = userId
+      setLoading(true)
+      setProfile(await loadProfile(userId))
+      setLoading(false)
     })
 
     return () => {

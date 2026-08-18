@@ -1,5 +1,7 @@
 import { useState, type FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
+import { SITE } from '@/config/site'
 import { configDiagnostics, describeAuthError } from '@/lib/diagnostics'
 
 export default function Login() {
@@ -10,6 +12,8 @@ export default function Login() {
   const [details, setDetails] = useState<string[] | null>(null)
   const [showDetails, setShowDetails] = useState(false)
   const [busy, setBusy] = useState(false)
+  // "במסך הלוג-אין, לאפשר גם את העין לצפייה בסיסמה" (הערה 15)
+  const [showPassword, setShowPassword] = useState(false)
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -36,7 +40,8 @@ export default function Login() {
           className="space-y-5 rounded-2xl bg-white p-8 shadow-lg"
         >
           <div className="text-center">
-            <h1 className="text-2xl font-bold text-slate-800">ניהול נתוני תלמידים</h1>
+            <div className="text-3xl">🎓</div>
+            <h1 className="mt-1 text-2xl font-bold text-slate-800">{SITE.name}</h1>
             <p className="mt-1 text-sm text-slate-500">כניסה למערכת</p>
           </div>
 
@@ -59,15 +64,26 @@ export default function Login() {
             <label htmlFor="password" className="block text-sm font-medium text-slate-700">
               סיסמה
             </label>
-            <input
-              id="password"
-              type="password"
-              autoComplete="current-password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-right focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
-            />
+            <div className="relative">
+              <input
+                id="password"
+                type={showPassword ? 'text' : 'password'}
+                autoComplete="current-password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 py-2 pr-3 pl-10 text-right focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                title={showPassword ? 'הסתרת הסיסמה' : 'הצגת הסיסמה'}
+                aria-label={showPassword ? 'הסתרת הסיסמה' : 'הצגת הסיסמה'}
+                className="absolute inset-y-0 left-0 flex w-10 items-center justify-center text-slate-400 transition hover:text-slate-700"
+              >
+                {showPassword ? '🙈' : '👁'}
+              </button>
+            </div>
           </div>
 
           {error && <p className="text-sm text-red-600">{error}</p>}
@@ -79,6 +95,15 @@ export default function Login() {
           >
             {busy ? 'מתחבר…' : 'כניסה'}
           </button>
+
+          <div className="flex justify-center gap-4 border-t border-slate-100 pt-4 text-sm">
+            <Link to="/" className="text-slate-500 transition hover:text-sky-700">
+              → חזרה לדף הבית
+            </Link>
+            <Link to="/about" className="text-slate-500 transition hover:text-sky-700">
+              אודות האתר
+            </Link>
+          </div>
         </form>
 
         {/* פירוט טכני — נפתח רק כשיש תקלה, לאבחון מהיר בלי לפתוח כלי מפתחים */}

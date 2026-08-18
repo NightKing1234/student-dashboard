@@ -11,7 +11,14 @@ interface Props {
   fields: string[]
   sort: SortState | null
   onSort: (field: string) => void
+  /** לחיצה על מספר השורה — פותחת ישירות את הכרטיס */
   onRowClick: (index: number) => void
+  /**
+   * לחיצה ימנית על תא — פותחת תפריט בחירה (כרטיס / סינון) בנקודת הלחיצה.
+   * זו הדרך היחידה לפתוח סינון מהטבלה: כפתור נפרד בכותרת נראה כמו חץ
+   * המיון והבלבול בין השניים לא הצדיק אותו.
+   */
+  onCellClick?: (index: number, field: string, anchor: DOMRect) => void
 }
 
 const ROW_HEIGHT = 36
@@ -23,7 +30,14 @@ const INDEX_WIDTH = 44
  * הטבלה הראשית — שורות מווירטואלות (~50k), רוחב עמודות ניתן לשינוי בגרירה (אפיון §6.1).
  * מבנה flex אחיד לכותרת ולשורות לשמירת יישור.
  */
-export default function StudentTable({ rows, fields, sort, onSort, onRowClick }: Props) {
+export default function StudentTable({
+  rows,
+  fields,
+  sort,
+  onSort,
+  onRowClick,
+  onCellClick,
+}: Props) {
   const parentRef = useRef<HTMLDivElement>(null)
   // רוחב לכל עמודה לפי מפתח השדה (נשמר גם במעבר בין תצורות/דפים)
   const [colWidths, setColWidths] = useState<Record<string, number>>({})
@@ -86,6 +100,7 @@ export default function StudentTable({ rows, fields, sort, onSort, onRowClick }:
                   <span className="truncate">{fieldLabel(key)}</span>
                   {active && <span className="shrink-0 text-sky-500">{sort.direction === 'asc' ? '▲' : '▼'}</span>}
                 </button>
+
                 {/* ידית שינוי רוחב */}
                 <div
                   onMouseDown={(e) => startResize(e, key)}
@@ -104,25 +119,43 @@ export default function StudentTable({ rows, fields, sort, onSort, onRowClick }:
             return (
               <div
                 key={vItem.key}
-                onClick={() => onRowClick(vItem.index)}
                 className={
-                  "absolute flex w-full cursor-pointer border-b border-slate-100 transition-colors hover:bg-sky-50 " +
+                  "absolute flex w-full border-b border-slate-100 transition-colors hover:bg-sky-50 " +
                   (vItem.index % 2 ? "bg-slate-50/60" : "bg-white")
                 }
                 style={{ transform: `translateY(${vItem.start}px)`, height: ROW_HEIGHT }}
               >
+                {/* מספר השורה — קיצור ישיר לכרטיס, בלי תפריט ביניים */}
                 <div
+                  onClick={() => onRowClick(vItem.index)}
+                  title="פתיחת כרטיס התלמיד"
+                  className="flex shrink-0 cursor-pointer items-center justify-center text-xs text-slate-400 transition hover:bg-sky-100 hover:text-sky-700"
                   style={{ width: INDEX_WIDTH }}
-                  className="flex shrink-0 items-center justify-center text-xs text-slate-400"
                 >
                   {vItem.index + 1}
                 </div>
+                {/*
+                  לחיצה שמאלית — כרטיס התלמיד, כמו שהיה.
+                  לחיצה ימנית — תפריט בחירה: כרטיס או סינון לפי העמודה הזו.
+                  ההפרדה נדרשה כי תפריט שנפתח בכל לחיצה שמאלית הפריע לגלישה
+                  רגילה בטבלה.
+                */}
                 {fields.map((key) => (
                   <div
                     key={key}
+                    onClick={() => onRowClick(vItem.index)}
+                    onContextMenu={(e) => {
+                      if (!onCellClick) return
+                      e.preventDefault()
+                      onCellClick(
+                        vItem.index,
+                        key,
+                        new DOMRect(e.clientX, e.clientY, 0, 0),
+                      )
+                    }}
                     style={{ width: widthOf(key) }}
-                    className="flex shrink-0 items-center overflow-hidden whitespace-nowrap border-l border-slate-100 px-2 text-slate-700"
-                    title={String(row[key] ?? '')}
+                    className="flex shrink-0 cursor-pointer items-center overflow-hidden whitespace-nowrap border-l border-slate-100 px-2 text-slate-700 hover:bg-sky-100/60"
+                    title={`${String(row[key] ?? '')}\n(לחיצה ימנית — סינון לפי העמודה)`}
                   >
                     <span className="truncate">{String(row[key] ?? '')}</span>
                   </div>

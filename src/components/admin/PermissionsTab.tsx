@@ -22,6 +22,8 @@ interface Props {
 /** מסך 2 — ניהול הרשאות: תפקיד + היקף (מועצתי / יישובי / בית-ספרי). */
 export default function PermissionsTab({ code }: Props) {
   const [users, setUsers] = useState<ManagedUser[]>([])
+  // שדות התפקיד והמוסד קיימים רק אחרי מיגרציה 010
+  const [hasProfileFields, setHasProfileFields] = useState(false)
   const [editing, setEditing] = useState<string | null>(null)
   const [draft, setDraft] = useState<ManagedUser | null>(null)
   const [options, setOptions] = useState<ScopeOption[]>([])
@@ -37,7 +39,12 @@ export default function PermissionsTab({ code }: Props) {
   const [newPassword, setNewPassword] = useState('')
 
   useEffect(() => {
-    fetchUsers().then(setUsers).catch((e) => setError(e.message))
+    fetchUsers()
+      .then(({ users, hasProfileFields }) => {
+        setUsers(users)
+        setHasProfileFields(hasProfileFields)
+      })
+      .catch((e) => setError(e.message))
   }, [])
 
   // טוענים את רשימת היישובים/המוסדות רק כשבאמת צריך אותה
@@ -55,7 +62,9 @@ export default function PermissionsTab({ code }: Props) {
   }, [activeLevel, code])
 
   async function reload() {
-    setUsers(await fetchUsers())
+    const { users, hasProfileFields } = await fetchUsers()
+    setUsers(users)
+    setHasProfileFields(hasProfileFields)
   }
 
   async function toggleSuspended(user: ManagedUser) {
@@ -121,11 +130,19 @@ export default function PermissionsTab({ code }: Props) {
         scope_level: draft.scope_level,
         // ברמה מועצתית אין ערכי היקף — מנקים כדי שלא יישארו שאריות
         scope_values: draft.scope_level === 'council' ? [] : draft.scope_values,
+        // נשלחים רק אם העמודות קיימות, אחרת העדכון כולו נכשל
+        ...(hasProfileFields
+          ? {
+              job_title: draft.job_title?.trim() || null,
+              institution_name: draft.institution_name?.trim() || null,
+              institution_code: draft.institution_code?.trim() || null,
+            }
+          : {}),
       })
       if (newPassword) {
         await setUserPassword(draft.id, newPassword)
       }
-      setUsers(await fetchUsers())
+      await reload()
       setEditing(null)
       setDraft(null)
       setNotice(newPassword ? 'ההרשאות והסיסמה עודכנו' : 'ההרשאות עודכנו')
@@ -220,6 +237,17 @@ export default function PermissionsTab({ code }: Props) {
                     <div className="font-mono text-xs text-slate-400" dir="ltr">
                       {user.email}
                     </div>
+                    {(user.job_title || user.institution_name) && (
+                      <div className="text-xs text-slate-500">
+                        {[
+                          user.job_title,
+                          user.institution_name,
+                          user.institution_code,
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </div>
+                    )}
                   </div>
 
                   {!isEditing && (
@@ -278,9 +306,50 @@ export default function PermissionsTab({ code }: Props) {
                         ▲
                       </button>
                     </div>
+                    {/* תפקיד ומוסד — תיאוריים בלבד, לתצוגה בכותרת המסך
+                        (הערות 1 ו-4). אינם משפיעים על ההרשאות. */}
+                    {hasProfileFields && (
+                      <div className="grid gap-4 sm:grid-cols-3">
+                        <label className="block">
+                          <span className="mb-1 block text-sm text-slate-600">
+                            תפקיד <span className="text-xs text-slate-400">(לתצוגה)</span>
+                          </span>
+                          <input
+                            value={draft.job_title ?? ''}
+                            onChange={(e) => setDraft({ ...draft, job_title: e.target.value })}
+                            placeholder="מזכירת בית ספר"
+                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-400 focus:outline-none"
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-sm text-slate-600">שם מוסד</span>
+                          <input
+                            value={draft.institution_name ?? ''}
+                            onChange={(e) =>
+                              setDraft({ ...draft, institution_name: e.target.value })
+                            }
+                            placeholder="מקיף גוונים"
+                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-400 focus:outline-none"
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-sm text-slate-600">סמל מוסד</span>
+                          <input
+                            dir="ltr"
+                            value={draft.institution_code ?? ''}
+                            onChange={(e) =>
+                              setDraft({ ...draft, institution_code: e.target.value })
+                            }
+                            placeholder="440386"
+                            className="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm focus:border-sky-400 focus:outline-none"
+                          />
+                        </label>
+                      </div>
+                    )}
+
                     <div className="grid gap-4 sm:grid-cols-2">
                       <label className="block">
-                        <span className="mb-1 block text-sm text-slate-600">תפקיד</span>
+                        <span className="mb-1 block text-sm text-slate-600">תפקיד במערכת</span>
                         <select
                           value={draft.role}
                           onChange={(e) =>
