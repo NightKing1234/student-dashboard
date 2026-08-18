@@ -84,9 +84,9 @@ export default function DataTab({ code }: Props) {
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <h3 className="mb-1 font-bold text-sky-800">עדכון קבצי מצב"ת</h3>
         <p className="mb-4 text-sm text-slate-500">
-          בחר את ששת הקבצים שהתקבלו ממשרד החינוך. הם נשמרים ומסומנים לעיבוד;
-          העיבוד עצמו רץ בסקריפט הפייתון (<code className="text-xs">update_from_moe.py</code>),
-          שמוריד אותם, מריץ את ה-pipeline וטוען את התוצאה.
+          בחר את ששת הקבצים שהתקבלו ממשרד החינוך. סוכן העיבוד קולט אותם
+          תוך שניות, מריץ את ה-pipeline וטוען את התוצאה — אין צורך להריץ
+          שום דבר ידנית. ההתקדמות מוצגת כאן למטה, ועדכון שלם אורך כדקה וחצי.
         </p>
 
         <label className="block cursor-pointer rounded-xl border-2 border-dashed border-sky-300 p-8 text-center transition hover:border-sky-500 hover:bg-sky-50">
@@ -156,13 +156,11 @@ export default function DataTab({ code }: Props) {
 
         {done && (
           <div className="mt-4 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-            <p className="font-medium">הקבצים הועלו וסומנו לעיבוד.</p>
+            <p className="font-medium">הקבצים הועלו — הסוכן מטפל בהם.</p>
             <p className="mt-1">
-              כדי להשלים את העדכון, הרץ במחשב שבו יושב ה-pipeline:
+              אפשר לעקוב אחרי ההתקדמות ב״היסטוריית עדכונים״ למטה. העדכון
+              נמשך כדקה וחצי, והטבלה מתעדכנת בסיומו.
             </p>
-            <code className="mt-1 block rounded bg-white px-2 py-1 text-xs" dir="ltr">
-              python scripts/update_from_moe.py --code {code}
-            </code>
           </div>
         )}
       </section>

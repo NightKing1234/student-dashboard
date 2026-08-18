@@ -28,9 +28,10 @@ Vault תיעוד (Obsidian) לפרויקט ממשק ניהול נתוני תלמ
 **שלב א' מומש, והמערכת חיה בענן.**
 
 - 🌐 האתר: https://astounding-pudding-d07e8f.netlify.app
-- 🗄 Supabase: 3 רשויות · 8 מיגרציות · Edge Function לניהול משתמשים
+- 🗄 Supabase: 3 רשויות · 9 מיגרציות · Edge Function לניהול משתמשים
 - 🤖 סוכן עיבוד אוטומטי — העלאה באתר מפעילה עדכון בלי מגע יד
-- 🔄 עדכון חודשי: `python scripts/update_from_moe.py --code 1400000`
+- 📁 סריקת תיקייה מקומית — קבצים שמגיעים למחשב מעובדים מעצמם
+- 🔄 עדכון ידני (גיבוי בלבד): `python scripts/update_from_moe.py --code 1400000`
 
-ראה [dev-log.md](dev-log.md) לפרטים ו-[decisions/003](decisions/003-unified-pipeline-and-cloud.md)
-להחלטות האחרונות.
+ראה [dev-log.md](dev-log.md) לפרטים, ו-[decisions/](decisions/) להחלטות —
+האחרונה היא [005](decisions/005-watch-folder-baseline.md).

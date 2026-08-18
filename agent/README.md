@@ -248,15 +248,15 @@ agent/backups/students_1400000/
 | `SELF_SIGNED_CERT` בהתקנה | רשת עם סינון תוכן. `pip install -r requirements.txt --trusted-host pypi.org --trusted-host files.pythonhosted.org` |
 | הסטטוס נתקע ב-`בעיבוד` | הסוכן נפל באמצע. לפתוח את `agent.log`, ולהחזיר את השורה ל-`pending` |
 | `חסר משתנה סביבה` | `.env.db` או `.env.agent` חסרים או ריקים |
-| הסוכן לא עולה אחרי הפעלה מחדש | Task Scheduler → לחפש "סוכן מצבת תלמידים" → לבדוק את `Last Run Result` |
+| הסוכן לא עולה אחרי הפעלה מחדש | Task Scheduler → לחפש `MatzevetAgent` → לבדוק את `Last Run Result` |
 
 ## עדכון גרסה
 
 להחליף את הקבצים ולהריץ:
 
 ```powershell
-Stop-ScheduledTask  -TaskName 'סוכן מצבת תלמידים'
-Start-ScheduledTask -TaskName 'סוכן מצבת תלמידים'
+Stop-ScheduledTask  -TaskName 'MatzevetAgent'
+Start-ScheduledTask -TaskName 'MatzevetAgent'
 ```
 
 ## אבטחה

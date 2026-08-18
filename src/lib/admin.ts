@@ -329,7 +329,8 @@ export async function fetchUploads(code: string): Promise<MoeUpload[]> {
 
 /**
  * מעלה את קבצי המצב"ת ל-Storage ורושם רשומת המתנה.
- * העיבוד עצמו (pandas) רץ מחוץ לענן — update_from_moe.py מוריד ומעבד.
+ * העיבוד עצמו (pandas) רץ מחוץ לענן — סוכן העיבוד תופס את הרשומה
+ * תוך שניות, מוריד, מריץ וטוען. ראה agent/README.md.
  */
 export async function uploadMoeFiles(code: string, files: File[]) {
   const prefix = `${code}/${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}`
