@@ -116,6 +116,29 @@ export async function createAuthority(code: string, name: string): Promise<strin
   return data as string
 }
 
+/**
+ * עדכון שם הרשות ומצב הפעילות שלה.
+ *
+ * הקוד אינו ניתן לשינוי — הוא מזהה את טבלת התלמידים (`students_{code}`),
+ * ושינוי שלו היה מנתק את הרשות מהנתונים שלה. נאכף גם בטריגר במסד.
+ *
+ * דורש [מיגרציה 011](../../supabase/migrations/011_authority_update.sql);
+ * עד שתורץ, ה-RLS יחזיר שגיאה והמסך יסביר מה חסר.
+ */
+export async function updateAuthority(
+  code: string,
+  patch: { name?: string; is_active?: boolean },
+) {
+  const { error } = await supabase.from('authorities').update(patch).eq('code', code)
+  if (!error) return
+
+  // RLS שדוחה עדכון מחזיר "0 שורות" ולא שגיאה מפורשת — מסבירים מה לעשות
+  throw new Error(
+    `${error.message} — ייתכן שמיגרציה 011 טרם הורצה על המסד ` +
+      '(היא זו שמתירה למנהל־על לערוך פרטי רשות).',
+  )
+}
+
 export async function fetchClients(): Promise<Client[]> {
   const { data, error } = await supabase.from('clients').select('*')
   if (error) throw error

@@ -3,15 +3,21 @@ import {
   fetchClient,
   fetchDocuments,
   saveClient,
+  updateAuthority,
   uploadDocument,
   deleteDocument,
   documentUrl,
+  type Authority,
   type Client,
   type ClientDocument,
 } from '@/lib/admin'
 
 interface Props {
   code: string
+  /** הרשות עצמה — לעריכת השם ומצב הפעילות */
+  authority: Authority | null
+  /** מרענן את הכותרת אחרי שינוי שם */
+  onAuthorityChange: (patch: { name?: string; is_active?: boolean }) => void
 }
 
 function fmtSize(bytes: number | null) {
@@ -31,13 +37,51 @@ function docIcon(mime: string | null) {
 }
 
 /** מסך 1 — התנהלות עסקית: מועדי תשלום, חידוש הסכם ומסמכים מצורפים. */
-export default function BusinessTab({ code }: Props) {
+export default function BusinessTab({ code, authority, onAuthorityChange }: Props) {
   const [client, setClient] = useState<Client | null>(null)
   const [docs, setDocs] = useState<ClientDocument[]>([])
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
+
+  // עריכת שם הרשות — טיוטה מקומית עד לשמירה
+  const [nameDraft, setNameDraft] = useState('')
+  const [savingName, setSavingName] = useState(false)
+  const [nameSaved, setNameSaved] = useState(false)
+
+  useEffect(() => {
+    setNameDraft(authority?.name ?? '')
+    setNameSaved(false)
+  }, [authority?.name])
+
+  async function saveName() {
+    const name = nameDraft.trim()
+    if (!authority || !name || name === authority.name) return
+    setSavingName(true)
+    setError(null)
+    try {
+      await updateAuthority(code, { name })
+      onAuthorityChange({ name })
+      setNameSaved(true)
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setSavingName(false)
+    }
+  }
+
+  async function toggleActive() {
+    if (!authority) return
+    const next = !authority.is_active
+    setError(null)
+    try {
+      await updateAuthority(code, { is_active: next })
+      onAuthorityChange({ is_active: next })
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
 
   useEffect(() => {
     fetchClient(code).then(setClient).catch((e) => setError(e.message))
@@ -105,9 +149,73 @@ export default function BusinessTab({ code }: Props) {
         <p className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-700">שגיאה: {error}</p>
       )}
 
+      {/* פרטי המועצה — שם וקוד */}
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h3 className="mb-4 font-bold text-sky-800">פרטי המועצה</h3>
+        <div className="grid gap-4 sm:grid-cols-[2fr_1fr_auto]">
+          <label className="block">
+            <span className="mb-1 block text-sm text-slate-600">שם המועצה</span>
+            <div className="flex gap-2">
+              <input
+                className={inputClass}
+                value={nameDraft}
+                onChange={(e) => {
+                  setNameDraft(e.target.value)
+                  setNameSaved(false)
+                }}
+                onKeyDown={(e) => e.key === 'Enter' && saveName()}
+                placeholder="מטה מנשה"
+              />
+              <button
+                onClick={saveName}
+                disabled={
+                  savingName ||
+                  !nameDraft.trim() ||
+                  nameDraft.trim() === authority?.name
+                }
+                className="shrink-0 rounded-lg bg-sky-600 px-4 text-sm font-medium text-white transition hover:bg-sky-700 disabled:opacity-40"
+              >
+                {savingName ? 'שומר…' : 'שינוי'}
+              </button>
+            </div>
+            {nameSaved && (
+              <span className="mt-1 block text-xs text-emerald-600">השם עודכן</span>
+            )}
+          </label>
+
+          <label className="block">
+            <span className="mb-1 block text-sm text-slate-600">
+              קוד רשות <span className="text-xs text-slate-400">(קבוע)</span>
+            </span>
+            <input
+              dir="ltr"
+              value={code}
+              readOnly
+              disabled
+              title="הקוד מזהה את טבלת התלמידים ולכן אינו ניתן לשינוי"
+              className={inputClass + ' cursor-not-allowed bg-slate-50 font-mono text-slate-500'}
+            />
+          </label>
+
+          <label className="flex items-end gap-2 pb-2">
+            <input
+              type="checkbox"
+              checked={authority?.is_active ?? true}
+              onChange={toggleActive}
+              className="accent-sky-600"
+            />
+            <span className="text-sm text-slate-600">מועצה פעילה</span>
+          </label>
+        </div>
+        <p className="mt-3 text-xs text-slate-400">
+          קוד הרשות מרכיב את שם טבלת התלמידים ולכן אינו ניתן לשינוי. מועצה
+          שאינה פעילה נשארת עם כל הנתונים שלה ורק מסומנת ככזו.
+        </p>
+      </section>
+
       {/* פרטי קשר */}
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h3 className="mb-4 font-bold text-sky-800">פרטי קשר</h3>
+        <h3 className="mb-4 font-bold text-sky-800">פרטי קשר ברשות</h3>
         <div className="grid gap-4 sm:grid-cols-3">
           <label className="block">
             <span className="mb-1 block text-sm text-slate-600">איש קשר</span>

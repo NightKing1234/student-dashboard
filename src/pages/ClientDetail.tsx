@@ -35,11 +35,16 @@ export default function ClientDetail() {
           → חזרה לרשימת הלקוחות
         </Link>
 
-        <h1 className="mt-1 text-xl font-bold text-sky-800">
+        <h1 className="mt-1 flex flex-wrap items-center gap-2 text-xl font-bold text-sky-800">
           {authority?.name ?? 'מועצה'}
-          <span className="mr-2 font-mono text-sm font-normal text-slate-400" dir="ltr">
+          <span className="font-mono text-sm font-normal text-slate-400" dir="ltr">
             {code}
           </span>
+          {authority && !authority.is_active && (
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-normal text-slate-500">
+              לא פעילה
+            </span>
+          )}
         </h1>
 
         <nav className="mt-3 flex gap-1">
@@ -61,7 +66,16 @@ export default function ClientDetail() {
       </header>
 
       <main className="p-6">
-        {tab === 'business' && <BusinessTab code={code} />}
+        {tab === 'business' && (
+          <BusinessTab
+            code={code}
+            authority={authority}
+            // עדכון מקומי מיד אחרי שמירה — הכותרת משתנה בלי טעינה מחדש
+            onAuthorityChange={(patch) =>
+              setAuthority((a) => (a ? { ...a, ...patch } : a))
+            }
+          />
+        )}
         {tab === 'permissions' && <PermissionsTab code={code} />}
         {tab === 'data' && <DataTab code={code} />}
       </main>
