@@ -41,6 +41,38 @@ export default function ColumnFilterMenu({
   const [query, setQuery] = useState('')
   const panelRef = useRef<HTMLDivElement>(null)
 
+  /**
+   * הזזה ידנית של החלון (סבא, 19.8: "אי אפשר לגרור — אני רוצה שאוכל
+   * להזיז אותו על המסך לאיפה שאני רוצה").
+   *
+   * נשמר כהיסט מנקודת הפתיחה ולא כמיקום מוחלט, כך שהחלון ממשיך להיפתח
+   * ליד העמודה שנלחצה גם אחרי שהוזז פעם אחת.
+   */
+  const [drag, setDrag] = useState({ x: 0, y: 0 })
+  const dragFrom = useRef<{ x: number; y: number } | null>(null)
+
+  function startDrag(e: React.MouseEvent) {
+    // לא לגרור כשלוחצים על כפתור שבתוך הכותרת
+    if ((e.target as HTMLElement).closest('button')) return
+    e.preventDefault()
+    dragFrom.current = { x: e.clientX - drag.x, y: e.clientY - drag.y }
+
+    function onMove(ev: MouseEvent) {
+      if (!dragFrom.current) return
+      setDrag({ x: ev.clientX - dragFrom.current.x, y: ev.clientY - dragFrom.current.y })
+    }
+    function onUp() {
+      dragFrom.current = null
+      document.body.style.userSelect = ''
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    // בלי זה הגרירה מסמנת טקסט בכל המסך
+    document.body.style.userSelect = 'none'
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+
   // מצב עבודה מקומי: null = הכל מסומן
   const selectedSet = useMemo(
     () => (selected === null ? null : new Set(selected)),
@@ -112,12 +144,22 @@ export default function ColumnFilterMenu({
     <div
       ref={panelRef}
       dir="rtl"
-      style={{ position: 'fixed', top, left, width: PANEL_WIDTH, maxHeight: PANEL_MAX_HEIGHT }}
+      style={{
+        position: 'fixed',
+        top: top + drag.y,
+        left: left + drag.x,
+        width: PANEL_WIDTH,
+        maxHeight: PANEL_MAX_HEIGHT,
+      }}
       className="z-50 flex flex-col overflow-hidden rounded-xl border border-slate-300 bg-white shadow-2xl"
     >
-      <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2">
+      {/* הכותרת היא ידית הגרירה */}
+      <div
+        onMouseDown={startDrag}
+        className="flex cursor-move items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2"
+      >
         <span className="truncate text-sm font-bold text-sky-800" title={title}>
-          {title}
+          <span className="mr-0.5 select-none text-slate-300">⠿</span> {title}
         </span>
         <button
           onClick={onClose}

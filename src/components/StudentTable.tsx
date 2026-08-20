@@ -1,6 +1,7 @@
 import { useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { fieldLabel } from '@/config/fields'
+import { IconFilter } from '@/components/brand/Icons'
 import type { SortState } from '@/lib/table'
 
 type Row = Record<string, unknown>
@@ -13,12 +14,23 @@ interface Props {
   onSort: (field: string) => void
   /** לחיצה על מספר השורה — פותחת ישירות את הכרטיס */
   onRowClick: (index: number) => void
-  /**
-   * לחיצה ימנית על תא — פותחת תפריט בחירה (כרטיס / סינון) בנקודת הלחיצה.
-   * זו הדרך היחידה לפתוח סינון מהטבלה: כפתור נפרד בכותרת נראה כמו חץ
-   * המיון והבלבול בין השניים לא הצדיק אותו.
-   */
+  /** לחיצה ימנית על תא — פותחת תפריט בחירה (כרטיס / סינון) בנקודת הלחיצה */
   onCellClick?: (index: number, field: string, anchor: DOMRect) => void
+  /**
+   * עמודות שיש עליהן סינון פעיל.
+   *
+   * סבא ביקש (19.8): "איך אני יכול לדעת על איזה שדה מופעל סינון כרגע,
+   * ויזואלית? — חץ עם המשפך שמופעל על השדה, כמו באקסס או באקסל".
+   */
+  filteredFields?: Set<string>
+  /**
+   * פתיחת תפריט הסינון מכותרת העמודה — הדרך השנייה לסנן, לצד הלחיצה
+   * הימנית על תא. סבא: "יש כאלה שאוהבים את זה".
+   *
+   * האייקון הוא **משפך** ולא חץ, בכוונה: הגרסה הקודמת השתמשה ב-▼,
+   * הוא נראה זהה לחץ המיון שלידו, ואי אפשר היה לדעת מה כל אחד עושה.
+   */
+  onOpenFilter?: (field: string, anchor: DOMRect) => void
 }
 
 const ROW_HEIGHT = 36
@@ -37,6 +49,8 @@ export default function StudentTable({
   onSort,
   onRowClick,
   onCellClick,
+  filteredFields,
+  onOpenFilter,
 }: Props) {
   const parentRef = useRef<HTMLDivElement>(null)
   // רוחב לכל עמודה לפי מפתח השדה (נשמר גם במעבר בין תצורות/דפים)
@@ -86,11 +100,17 @@ export default function StudentTable({
           </div>
           {fields.map((key) => {
             const active = sort?.field === key
+            const isFiltered = filteredFields?.has(key) ?? false
             return (
               <div
                 key={key}
                 style={{ width: widthOf(key) }}
-                className="group relative flex shrink-0 items-center justify-between gap-1 whitespace-nowrap border-b-2 border-l border-sky-200 border-l-sky-100 py-2 pr-2 pl-1 font-semibold text-sky-700"
+                className={
+                  'group relative flex shrink-0 items-center justify-between gap-1 whitespace-nowrap border-b-2 border-l py-2 pr-2 pl-1 font-semibold ' +
+                  (isFiltered
+                    ? 'border-b-sky-500 border-l-sky-100 bg-sky-100 text-sky-800'
+                    : 'border-sky-200 border-l-sky-100 text-sky-700')
+                }
               >
                 <button
                   onClick={() => onSort(key)}
@@ -100,6 +120,28 @@ export default function StudentTable({
                   <span className="truncate">{fieldLabel(key)}</span>
                   {active && <span className="shrink-0 text-sky-500">{sort.direction === 'asc' ? '▲' : '▼'}</span>}
                 </button>
+
+                {/* משפך הסינון — מוצג תמיד כשהעמודה מסוננת, ובריחוף אחרת */}
+                {onOpenFilter && (
+                  <button
+                    onClick={(e) =>
+                      onOpenFilter(key, e.currentTarget.getBoundingClientRect())
+                    }
+                    title={
+                      isFiltered
+                        ? `סינון פעיל על ${fieldLabel(key)} — לחץ לעריכה`
+                        : `סינון לפי ${fieldLabel(key)}`
+                    }
+                    className={
+                      'shrink-0 rounded p-0.5 transition ' +
+                      (isFiltered
+                        ? 'bg-sky-600 text-white'
+                        : 'text-sky-400 opacity-0 hover:bg-sky-100 hover:text-sky-700 focus:opacity-100 group-hover:opacity-100')
+                    }
+                  >
+                    <IconFilter className="h-3.5 w-3.5" />
+                  </button>
+                )}
 
                 {/* ידית שינוי רוחב */}
                 <div

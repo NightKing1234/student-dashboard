@@ -196,6 +196,15 @@ export default function Dashboard() {
     [columnMenu?.field, scopedRows, activeFilters],
   )
 
+  /**
+   * העמודות שיש עליהן סינון פעיל — לסימון המשפך בכותרת.
+   * כל סוגי הסינון נספרים, לא רק בחירה מרובה.
+   */
+  const filteredFields = useMemo(
+    () => new Set(activeFilters.map((c) => c.field)),
+    [activeFilters],
+  )
+
   function columnSelection(field: string): string[] | null {
     const cond = filters.find((c) => c.field === field && c.operator === 'one_of')
     return cond?.values ?? null
@@ -226,6 +235,18 @@ export default function Dashboard() {
     setSort(null)
     setFieldPage(0)
     setSiblingParentId(null)
+  }
+
+  /**
+   * חזרה לנקודת האפס של התצורה: הסינון שלה, בלי מיון ובלי זיהוי אחים.
+   * תמהיל השדות נשאר — לו יש איפוס נפרד בתוך בורר השדות.
+   */
+  function resetView() {
+    const preset = PRESETS.find((p) => p.id === activePreset) ?? DEFAULT_PRESET
+    setFilters(presetFilters(preset))
+    setSort(null)
+    setSiblingParentId(null)
+    setFieldPage(0)
   }
 
   /** חזרה לתמהיל השדות של התצורה, בלי לגעת בסינון */
@@ -389,14 +410,22 @@ export default function Dashboard() {
           </button>
           {/* הסינון הנוכחי נוסע עם הניווט — סבא: "אחרי שהגדרת טבלה
               שסיננת וצמצמת, ייצוא לדף הפיבוט" */}
-          <Link
-            to={`/pivot/${authorityCode}`}
-            state={{ filters: activeFilters }}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:border-sky-400 hover:bg-sky-50 hover:text-sky-700"
-            title="דוחות סיכום על הסינון הנוכחי — כמה תלמידים בכל מוסד, שכבה ויישוב"
-          >
-            ▦ פיבוטים
-          </Link>
+          <span className="group relative">
+            <Link
+              to={`/pivot/${authorityCode}`}
+              state={{ filters: activeFilters }}
+              className="block rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:border-sky-400 hover:bg-sky-50 hover:text-sky-700"
+            >
+              ▦ פיבוטים
+            </Link>
+            {/* הסבר בריחוף — הפיבוט כבד ככל שהטבלה גדולה */}
+            <span className="pointer-events-none absolute right-0 top-full z-40 mt-1 w-64 rounded-lg bg-slate-800 px-3 py-2 text-xs leading-relaxed text-white opacity-0 shadow-lg transition group-hover:opacity-100">
+              דוחות סיכום — כמה תלמידים בכל מוסד, שכבה ויישוב.
+              <span className="mt-1 block text-amber-200">
+                מומלץ לסנן ולצמצם את הטבלה לפני השימוש בפיבוט.
+              </span>
+            </span>
+          </span>
           {/* מנהל רשות יכול לעדכן את הנתונים בעצמו, מתי שהוא רוצה */}
           {(isSuperAdmin || profile?.role === 'admin') && authorityCode && (
             <Link
@@ -463,7 +492,12 @@ export default function Dashboard() {
       )}
 
       {/* סינון */}
-      <FilterBar conditions={filters} onChange={setFilters} valuesFor={valuesForField} />
+      <FilterBar
+        conditions={filters}
+        onChange={setFilters}
+        valuesFor={valuesForField}
+        onReset={resetView}
+      />
 
       {/* הטבלה */}
       <div ref={tableWrapRef} className="min-h-0 flex-1 bg-white">
@@ -479,6 +513,8 @@ export default function Dashboard() {
             onSort={handleSort}
             onRowClick={setCardIndex}
             onCellClick={(index, field, anchor) => setCellMenu({ index, field, anchor })}
+            filteredFields={filteredFields}
+            onOpenFilter={(field, anchor) => setColumnMenu({ field, anchor })}
           />
         )}
       </div>

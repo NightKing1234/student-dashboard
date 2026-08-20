@@ -14,6 +14,13 @@ interface Props {
   onChange: (conditions: FilterCondition[]) => void
   /** הערכים הזמינים לשדה — לבחירה מרובה בצ'קבוקסים */
   valuesFor: (field: string) => ColumnValue[]
+  /**
+   * החזרת המסך למצב הפתיחה של התצורה — סינון, מיון וזיהוי אחים.
+   *
+   * סבא (19.8): "אם אני רוצה לבטל את כל הסינונים במכה אחת... פונקציה
+   * מאוד חשובה, שבלחיצה אחת אני חוזר לנקודת האפס."
+   */
+  onReset: () => void
 }
 
 function newId() {
@@ -26,7 +33,7 @@ function isValueless(op: FilterOperator) {
 }
 
 /** סרגל סינון — אפיון §6.3. שילוב מספר סינונים ב-AND. */
-export default function FilterBar({ conditions, onChange, valuesFor }: Props) {
+export default function FilterBar({ conditions, onChange, valuesFor, onReset }: Props) {
   // איזה תנאי "אחד מתוך" פתוח כרגע לבחירה, ומאיפה נפתח התפריט
   const [picking, setPicking] = useState<{ id: string; anchor: DOMRect } | null>(null)
 
@@ -143,14 +150,17 @@ export default function FilterBar({ conditions, onChange, valuesFor }: Props) {
         + הוסף סינון
       </button>
 
-      {conditions.length > 0 && (
-        <button
-          onClick={() => onChange([])}
-          className="rounded-lg px-2 py-1 text-sm text-slate-500 transition hover:bg-red-50 hover:text-red-600"
-        >
-          נקה הכל
-        </button>
-      )}
+      {/*
+        מחזיר את המסך לנקודת האפס: הסינון של התצורה, בלי מיון ובלי
+        זיהוי אחים. תנאי בודד עדיין ניתן להסרה ב-✕ שלו.
+      */}
+      <button
+        onClick={onReset}
+        title="חזרה לסינון ולמיון של ברירת המחדל"
+        className="rounded-lg px-2 py-1 text-sm text-slate-500 transition hover:bg-sky-50 hover:text-sky-700"
+      >
+        ↺ איפוס הכל
+      </button>
 
       {picking &&
         (() => {
