@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { fetchAuthorities, type Authority } from '@/lib/admin'
 import BusinessTab from '@/components/admin/BusinessTab'
 import PermissionsTab from '@/components/admin/PermissionsTab'
@@ -16,6 +16,7 @@ type TabId = (typeof TABS)[number]['id']
 /** דף לקוח — שלושת המסכים של מועצה אזורית אחת. */
 export default function ClientDetail() {
   const { code = '' } = useParams()
+  const navigate = useNavigate()
   const [tab, setTab] = useState<TabId>('business')
   const [authority, setAuthority] = useState<Authority | null>(null)
 
@@ -73,6 +74,10 @@ export default function ClientDetail() {
             // עדכון מקומי מיד אחרי שמירה — הכותרת משתנה בלי טעינה מחדש
             onAuthorityChange={(patch) =>
               setAuthority((a) => (a ? { ...a, ...patch } : a))
+            }
+            // הדף מצייר מועצה שכבר לא קיימת — יוצאים ממנו מיד, עם הודעה
+            onDeleted={(summary) =>
+              navigate('/admin', { replace: true, state: { deleted: summary } })
             }
           />
         )}

@@ -76,6 +76,8 @@ npm run dev
 - Supabase: פרויקט `agcoeqshvkyopjjdvril`, טבלה `students_1400000` עם **8,244** תלמידים
   (7,919 "משובץ" + 325 בסטטוסים אחרים), **165 עמודות**.
 - משתמש: `eyal.yinnon@gmail.com` (admin, רשות 1400000).
-- **האתר חי:** https://astounding-pudding-d07e8f.netlify.app
+- **האתר חי:** https://moonlit-macaron-430f54.netlify.app
+  (Netlify של איתי, בונה מ-`EtaiNir/Project_Matzevet` —
+  ראה [decisions/009](decisions/009-hosting-split.md))
 - גיטהאב: ריפו פרטי `NightKing1234/student-dashboard`, פריסה אוטומטית בכל push.
 - ה-pipeline: רץ מקומית, מוכן למעבר לשרת.

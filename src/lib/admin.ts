@@ -139,6 +139,140 @@ export async function updateAuthority(
   )
 }
 
+/** הרשות שטבלת התלמידים שלה משמשת תבנית — אינה ניתנת למחיקה. */
+export const TEMPLATE_AUTHORITY_CODE = '1400000'
+
+export interface DeletedAuthoritySummary {
+  code: string
+  name: string
+  students: number
+  users: number
+  uploads: number
+  documents: number
+}
+
+/** מה עומד להימחק — נטען לפני האישור כדי שהמסך יציג מספרים אמיתיים. */
+export async function authorityFootprint(code: string) {
+  const [students, users, uploads, docs, files] = await Promise.all([
+    supabase.from(`students_${code}`).select('*', { count: 'exact', head: true }),
+    supabase.from('users').select('*', { count: 'exact', head: true })
+      .contains('authority_codes', [code]),
+    supabase.from('moe_uploads').select('*', { count: 'exact', head: true })
+      .eq('authority_code', code),
+    supabase.from('client_documents').select('*', { count: 'exact', head: true })
+      .eq('authority_code', code),
+    listStoragePaths(UPLOADS_BUCKET, code),
+  ])
+  return {
+    students: students.count ?? 0,
+    users: users.count ?? 0,
+    uploads: uploads.count ?? 0,
+    documents: docs.count ?? 0,
+    files: files.length,
+  }
+}
+
+/**
+ * כל הקבצים תחת תיקייה בבאקט, כולל תת-תיקיות.
+ *
+ * `moe-uploads` בנוי `{code}/{timestamp}/{file}` — שתי רמות, ולכן צריך
+ * ירידה רקורסיבית. ב-Supabase Storage אין "תיקייה" אמיתית: רשומה בלי
+ * `id` היא תחילית של נתיב ולא קובץ.
+ */
+async function listStoragePaths(bucket: string, prefix: string): Promise<string[]> {
+  const { data, error } = await supabase.storage.from(bucket).list(prefix, { limit: 1000 })
+  if (error || !data) return []
+
+  const paths: string[] = []
+  for (const entry of data) {
+    const full = `${prefix}/${entry.name}`
+    if (entry.id) paths.push(full)
+    else paths.push(...(await listStoragePaths(bucket, full)))
+  }
+  return paths
+}
+
+/**
+ * מוחקת מועצה על כל מה שתלוי בה.
+ *
+ * הסדר אינו שרירותי: **הקבצים נמחקים לפני הרשומות**. מחיקת
+ * `storage.objects` ב-SQL מוחקת את הרשומה ומשאירה את הקובץ עצמו בבאקט,
+ * ולכן הניקוי חייב לעבור דרך ה-API של Storage. אם הוא נכשל — עוצרים
+ * לפני שנגענו במסד: עדיף רשות שנשארה על קבצי מצב"ת יתומים עם תעודות
+ * זהות של קטינים.
+ *
+ * השאר — טבלת התלמידים, השיוכים והרשומות התלויות — נמחק בטרנזקציה אחת
+ * ב-[מיגרציה 013](../../supabase/migrations/013_delete_authority.sql).
+ */
+export async function deleteAuthority(
+  code: string,
+  confirmName: string,
+): Promise<DeletedAuthoritySummary> {
+  if (code === TEMPLATE_AUTHORITY_CODE) {
+    throw new Error('אי אפשר למחוק את מועצת התבנית')
+  }
+
+  for (const bucket of [UPLOADS_BUCKET, DOCUMENTS_BUCKET]) {
+    const paths = await listStoragePaths(bucket, code)
+    // 100 בכל פעם — בקשה עם אלפי נתיבים נדחית
+    for (let i = 0; i < paths.length; i += 100) {
+      const { error } = await supabase.storage.from(bucket).remove(paths.slice(i, i + 100))
+      if (error) {
+        throw new Error(
+          `מחיקת הקבצים מ-${bucket} נכשלה — ${error.message}. ` +
+            'המועצה לא נמחקה; אפשר לנסות שוב.',
+        )
+      }
+    }
+  }
+
+  const { data, error } = await supabase.rpc('delete_authority', {
+    target_code: code,
+    confirm_name: confirmName,
+  })
+  if (error) {
+    throw new Error(
+      `${error.message} — ייתכן שמיגרציה 013 טרם הורצה על המסד ` +
+        '(היא זו שמגדירה את פונקציית המחיקה).',
+    )
+  }
+  return data as DeletedAuthoritySummary
+}
+
+// ─────────────────────────── יומן פעולות ───────────────────────────
+
+export interface AuditEntry {
+  id: number
+  at: string
+  actor_email: string | null
+  via: string
+  action: 'insert' | 'update' | 'delete'
+  entity: 'user' | 'authority'
+  entity_id: string | null
+  entity_label: string | null
+  changes: Record<string, { לפני?: unknown; אחרי?: unknown }> | null
+}
+
+/**
+ * יומן פעולות הניהול ([מיגרציה 014](../../supabase/migrations/014_audit_and_last_admin.sql)).
+ *
+ * נכתב בטריגר בלבד; ל-`authenticated` אין מדיניות כתיבה, ולכן גם מנהל-על
+ * אינו יכול לשכתב אותו דרך ה-API. יומן שאפשר לערוך אינו יומן.
+ */
+export async function fetchAuditLog(limit = 50): Promise<AuditEntry[]> {
+  const { data, error } = await supabase
+    .from('admin_audit')
+    .select('*')
+    .order('at', { ascending: false })
+    .limit(limit)
+  if (error) {
+    throw new Error(
+      `${error.message} — ייתכן שמיגרציה 014 טרם הורצה על המסד.`,
+    )
+  }
+  return (data ?? []) as AuditEntry[]
+}
+
 export async function fetchClients(): Promise<Client[]> {
   const { data, error } = await supabase.from('clients').select('*')
   if (error) throw error

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
+import AuditLog from '@/components/admin/AuditLog'
 import {
   fetchAuthorities,
   fetchClients,
@@ -8,6 +9,7 @@ import {
   createAuthority,
   type Authority,
   type Client,
+  type DeletedAuthoritySummary,
 } from '@/lib/admin'
 
 interface CardData {
@@ -37,6 +39,8 @@ function dateStatus(date: string | null) {
 /** מסך המנהל — כרטיס לקוח לכל מועצה אזורית. */
 export default function Admin() {
   const { profile, signOut } = useAuth()
+  // הודעת המחיקה מגיעה מ-ClientDetail דרך state של הניווט
+  const deleted = useLocation().state?.deleted as DeletedAuthoritySummary | undefined
   const [cards, setCards] = useState<CardData[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -113,6 +117,14 @@ export default function Admin() {
         {loading && <p className="text-slate-400">טוען לקוחות…</p>}
         {error && (
           <p className="mb-4 rounded-lg bg-red-50 px-4 py-2 text-sm text-red-700">שגיאה: {error}</p>
+        )}
+
+        {deleted && (
+          <p className="mb-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            <strong>{deleted.name}</strong> נמחקה — {deleted.students.toLocaleString('he-IL')}{' '}
+            תלמידים, {deleted.uploads} רשומות עדכון ו-{deleted.documents} מסמכים.
+            {deleted.users > 0 && ` ${deleted.users} משתמשים איבדו את השיוך אליה.`}
+          </p>
         )}
 
         {adding && (
@@ -222,6 +234,8 @@ export default function Admin() {
             <p className="mt-2">אין עדיין מועצות במערכת</p>
           </div>
         )}
+
+        <AuditLog />
       </main>
     </div>
   )

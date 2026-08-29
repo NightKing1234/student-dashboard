@@ -7,9 +7,13 @@ import {
   uploadDocument,
   deleteDocument,
   documentUrl,
+  authorityFootprint,
+  deleteAuthority,
+  TEMPLATE_AUTHORITY_CODE,
   type Authority,
   type Client,
   type ClientDocument,
+  type DeletedAuthoritySummary,
 } from '@/lib/admin'
 
 interface Props {
@@ -18,6 +22,8 @@ interface Props {
   authority: Authority | null
   /** מרענן את הכותרת אחרי שינוי שם */
   onAuthorityChange: (patch: { name?: string; is_active?: boolean }) => void
+  /** המועצה נמחקה — הדף מחזיר לרשימת הלקוחות */
+  onDeleted: (summary: DeletedAuthoritySummary) => void
 }
 
 function fmtSize(bytes: number | null) {
@@ -37,7 +43,12 @@ function docIcon(mime: string | null) {
 }
 
 /** מסך 1 — התנהלות עסקית: מועדי תשלום, חידוש הסכם ומסמכים מצורפים. */
-export default function BusinessTab({ code, authority, onAuthorityChange }: Props) {
+export default function BusinessTab({
+  code,
+  authority,
+  onAuthorityChange,
+  onDeleted,
+}: Props) {
   const [client, setClient] = useState<Client | null>(null)
   const [docs, setDocs] = useState<ClientDocument[]>([])
   const [saving, setSaving] = useState(false)
@@ -49,6 +60,39 @@ export default function BusinessTab({ code, authority, onAuthorityChange }: Prop
   const [nameDraft, setNameDraft] = useState('')
   const [savingName, setSavingName] = useState(false)
   const [nameSaved, setNameSaved] = useState(false)
+
+  // מחיקת המועצה — נפתח רק בבקשה מפורשת, ודורש הקלדת השם
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleteName, setDeleteName] = useState('')
+  const [deleting, setDeleting] = useState(false)
+  const [footprint, setFootprint] = useState<Awaited<
+    ReturnType<typeof authorityFootprint>
+  > | null>(null)
+
+  const isTemplate = code === TEMPLATE_AUTHORITY_CODE
+
+  async function openDelete() {
+    setDeleteOpen(true)
+    setDeleteName('')
+    setFootprint(null)
+    try {
+      setFootprint(await authorityFootprint(code))
+    } catch {
+      // ספירה שנכשלה לא חוסמת — הפונקציה במסד סופרת בעצמה
+    }
+  }
+
+  async function confirmDelete() {
+    setDeleting(true)
+    setError(null)
+    try {
+      const summary = await deleteAuthority(code, deleteName.trim())
+      onDeleted(summary)
+    } catch (e) {
+      setError((e as Error).message)
+      setDeleting(false)
+    }
+  }
 
   useEffect(() => {
     setNameDraft(authority?.name ?? '')
@@ -370,6 +414,83 @@ export default function BusinessTab({ code, authority, onAuthorityChange }: Prop
           </div>
         )}
       </section>
+
+      {/* מחיקת המועצה — פעולה בלתי הפיכה, ולכן מופרדת ויזואלית ונעולה מאחורי הקלדת השם */}
+      {!isTemplate && (
+        <section className="rounded-2xl border border-red-200 bg-red-50/50 p-5">
+          <h3 className="mb-1 font-bold text-red-800">מחיקת המועצה</h3>
+          <p className="mb-4 text-sm text-slate-600">
+            מוחקת את המועצה על כל נתוניה — טבלת התלמידים, קובצי המצב״ת
+            שהועלו, המסמכים והשיוכים. <strong>אין דרך לשחזר.</strong> אם
+            המטרה היא רק להפסיק להשתמש במועצה — עדיף להסיר את הסימון
+            &quot;מועצה פעילה&quot; למעלה, וכל הנתונים יישמרו.
+          </p>
+
+          {!deleteOpen ? (
+            <button
+              onClick={openDelete}
+              className="rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-600 hover:text-white"
+            >
+              מחיקת המועצה…
+            </button>
+          ) : (
+            <div className="rounded-xl border border-red-300 bg-white p-4">
+              <p className="text-sm text-slate-700">
+                עומדים להימחק לצמיתות עבור <strong>{authority?.name}</strong>:
+              </p>
+
+              <ul className="my-3 grid gap-1 text-sm text-slate-600 sm:grid-cols-2">
+                {footprint ? (
+                  <>
+                    <li>• {footprint.students.toLocaleString('he-IL')} תלמידים</li>
+                    <li>• {footprint.files} קובצי מצב״ת ב-Storage</li>
+                    <li>• {footprint.uploads} רשומות עדכון</li>
+                    <li>• {footprint.documents} מסמכים מצורפים</li>
+                    {footprint.users > 0 && (
+                      <li className="font-medium text-red-700 sm:col-span-2">
+                        • {footprint.users} משתמשים יאבדו את השיוך למועצה זו
+                      </li>
+                    )}
+                  </>
+                ) : (
+                  <li className="text-slate-400">סופר…</li>
+                )}
+              </ul>
+
+              <label className="block">
+                <span className="mb-1 block text-sm text-slate-600">
+                  לאישור, הקלד את שם המועצה במדויק:{' '}
+                  <strong className="text-slate-800">{authority?.name}</strong>
+                </span>
+                <input
+                  className={inputClass + ' max-w-sm'}
+                  value={deleteName}
+                  onChange={(e) => setDeleteName(e.target.value)}
+                  placeholder={authority?.name ?? ''}
+                  autoFocus
+                />
+              </label>
+
+              <div className="mt-4 flex items-center gap-3">
+                <button
+                  onClick={confirmDelete}
+                  disabled={deleting || deleteName.trim() !== authority?.name}
+                  className="rounded-lg bg-red-600 px-5 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-red-700 disabled:opacity-40"
+                >
+                  {deleting ? 'מוחק…' : 'מחיקה סופית'}
+                </button>
+                <button
+                  onClick={() => setDeleteOpen(false)}
+                  disabled={deleting}
+                  className="text-sm text-slate-500 transition hover:text-slate-800"
+                >
+                  ביטול
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
     </div>
   )
 }
