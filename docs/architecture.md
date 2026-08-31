@@ -38,7 +38,7 @@
 - פרטים מלאים: [data-loading.md](data-loading.md).
 
 ### 3. הפרונטאנד — React + TypeScript
-- טבלה מרכזית אחת עם 4 תצורות, סינון, מיון, כרטיס תלמיד, וייצוא לאקסל.
+- טבלה מרכזית אחת עם 5 תצורות, סינון, מיון, כרטיס תלמיד, וייצוא לאקסל.
 - RTL מלא, רספונסיבי.
 - פרטים מלאים: [features.md](features.md).
 
@@ -60,7 +60,7 @@
 ```
 student-dashboard/
 ├── src/
-│   ├── config/       fields.ts (כל השדות + תוויות), presets.ts (4 תצורות)
+│   ├── config/       fields.ts (כל השדות + תוויות), presets.ts (5 תצורות)
 │   ├── lib/          supabase.ts, students.ts, filters.ts, table.ts, exportExcel.ts
 │   ├── context/      AuthContext.tsx (אימות + פרופיל משתמש)
 │   ├── components/   StudentTable, FilterBar, FieldPicker, StudentCard

@@ -20,7 +20,7 @@ npm run dev
 ## מבנה
 ```
 src/
-  config/     fields.ts (כל השדות + תוויות עברית), presets.ts (4 תצורות)
+  config/     fields.ts (כל השדות + תוויות עברית), presets.ts (5 תצורות)
   lib/        supabase.ts, students.ts, filters.ts, table.ts, exportExcel.ts
   context/    AuthContext.tsx
   components/  StudentTable, FilterBar, FieldPicker, StudentCard
@@ -37,6 +37,6 @@ scripts/load_data.py   טעינת פלט ה-pipeline ל-Supabase
 4. טען נתונים: `python scripts/load_data.py --file <פלט pipeline> --code 1400000`.
 
 ## מה מומש (שלב א')
-טבלה ראשית עם 4 תצורות שדות, בורר שדות, דפדוף שדות אופקי, סינון מתקדם (כולל "מכיל"),
+טבלה ראשית עם 5 תצורות שדות, בורר שדות, דפדוף שדות אופקי, סינון מתקדם (כולל "מכיל"),
 מיון, כרטיס תלמיד עם ניווט הבא/הקודם, זיהוי אחים, וייצוא לאקסל — הכל RTL ורספונסיבי.
 ```

@@ -32,10 +32,21 @@ export function isStudentsCached(authorityCode: string): boolean {
   return cache.has(authorityCode)
 }
 
+/**
+ * עמוד אחד מהטבלה.
+ *
+ * ה-`order` אינו קישוט: בלי מיון מפורש, Postgres אינו מתחייב להחזיר את
+ * השורות באותו סדר בשתי שאילתות נפרדות. `range` חותך לפי מיקום, ולכן
+ * ארבע הבקשות המקבילות שלמטה עלולות להחזיר שורה פעמיים ולהחסיר אחרת —
+ * בשקט, בלי שגיאה, ועם מספר תלמידים שנראה סביר.
+ *
+ * המיון על המפתח הראשי, שיש עליו אינדקס ממילא, ולכן אינו עולה דבר.
+ */
 async function fetchPage(table: string, from: number): Promise<StudentRow[]> {
   const { data, error } = await supabase
     .from(table)
     .select('*')
+    .order('MISPAR_ZEHUT')
     .range(from, from + PAGE_SIZE - 1)
   if (error) throw error
   return (data ?? []) as StudentRow[]
